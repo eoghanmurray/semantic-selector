@@ -1,0 +1,50 @@
+{
+  "name": "@statcounter/stable-selector",
+  "version": "0.1.0",
+  "description": "Generate a stable, identity-only CSS selector for a DOM element (reorder-resilient; ambiguity resolved out-of-band rather than via positional ordinals)",
+  "type": "module",
+  "main": "./dist/stable-selector.umd.cjs",
+  "module": "./dist/stable-selector.js",
+  "unpkg": "./dist/stable-selector.umd.cjs",
+  "typings": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/stable-selector.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/stable-selector.umd.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "dev": "vite build --watch",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "build": "tsc --noEmit && vite build",
+    "check-types": "tsc --noEmit"
+  },
+  "keywords": [
+    "css-selector",
+    "locator",
+    "heatmap",
+    "dom"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^24.0.0",
+    "linkedom": "^0.14.26",
+    "prettier": "3.9.6",
+    "typescript": "^5.4.5",
+    "vite": "^6.0.1",
+    "vite-plugin-dts": "^3.9.1",
+    "vitest": "^1.4.0"
+  }
+}
