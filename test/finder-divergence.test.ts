@@ -44,7 +44,7 @@ describe('divergence from finder', () => {
     setHTML('<div id="foo"><i></i></div><div id="foo"><i></i></div>');
     const i = document.body.querySelector('i')!;
     const s = stableSelector(i);
-    expect(s).toBe('div#foo i');
+    expect(s).toBe('#foo i');
     expect(s).not.toContain('nth-of-type');
     expect(matchCount(s)).toBe(2);
   });
@@ -68,7 +68,7 @@ describe('divergence from finder', () => {
     // stable [id="..."] anchor (finder forks PR #69).
     setHTML('<div id="12345"><span>x</span></div>');
     const span = document.body.querySelector('span')!;
-    expect(stableSelector(span)).toBe('div[id="12345"] span');
+    expect(stableSelector(span)).toBe('[id="12345"] span');
   });
 
   it('never emits a positional ordinal for identity-less siblings', () => {

@@ -397,9 +397,32 @@ function ambiguousId(id: string, root: Element): boolean {
 }
 
 /**
+ * Drop the leading tag qualifier from an *ancestor* segment. The tag is a cheap,
+ * intrinsic correctness constraint on the terminal (clicked) element — it stops
+ * `div.entry-content` from relocating onto a `<section class="entry-content">` a
+ * redesign introduces — but on the ancestors it climbs through it is pure
+ * verbosity: `div.wp-block-group` → `.wp-block-group`, `main#skip` → `#skip`,
+ * `a[href="/x"]` → `[href="/x"]`, `h1#intro + p` → `#intro + p`.
+ *
+ * Only a leading tag immediately followed by an id/class/attr/pseudo is removed,
+ * so the remainder is always still a valid selector; ancestors that are a bare
+ * tag are never produced (structural ancestors are dropped from the path
+ * entirely), so there's nothing to accidentally strip to empty. For a
+ * `prev#id + tag` sibling anchor this drops only the anchor's (redundant, since
+ * the id is unique) tag, keeping the trailing element tag the combinator needs.
+ */
+function stripLeadingTag(seg: string): string {
+  return seg.replace(/^[a-z][a-z0-9-]*(?=[.#[:])/i, '');
+}
+
+/**
  * Walk an element's ancestor path and join its identity segments with
  * descendant combinators. Purely structural ancestors (no id/url/class/`:has`
  * anchor) are omitted — we never emit positional `nth-of-type` ordinals.
+ *
+ * Only the terminal (clicked) element keeps its tag qualifier; every ancestor
+ * segment is tag-stripped (see stripLeadingTag) to keep the selector terse,
+ * since the tag adds no identity there.
  *
  * When `includeWeak` is false a weak (CMS-enumerated) id is treated as no
  * identity at all: dropped if it's an interior ancestor, replaced by a bare tag
@@ -430,7 +453,9 @@ function buildSelectorPath(
         : seg.seg
       : null;
     if (chosen) {
-      segments.push(chosen);
+      // The clicked element keeps its tag (a cheap identity constraint); every
+      // ancestor is tag-stripped — the tag carries no identity there.
+      segments.push(isTerminal ? chosen : stripLeadingTag(chosen));
       if (seg && seg.stop) {
         // A stop assumes its anchoring id (`seg.stopId`) is a unique handle —
         // either the element's own id or a strong id on its immediate preceding

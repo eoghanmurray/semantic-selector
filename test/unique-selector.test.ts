@@ -116,8 +116,9 @@ describe('stableSelector', () => {
       `);
       const s = sel(target());
       expect(s).toContain('#sidebar');
-      // ul is structural and dropped; descendant combinator skips it.
-      expect(s).toBe('div#sidebar li');
+      // ul is structural and dropped; descendant combinator skips it. The
+      // ancestor #sidebar sheds its tag; only the terminal keeps one (bare li).
+      expect(s).toBe('#sidebar li');
     });
 
     it('accepts purely numeric IDs via an [id="..."] selector', () => {
@@ -215,8 +216,9 @@ describe('stableSelector', () => {
         </div>
       `);
       expect(matchCount('#content-wrapper')).toBe(2);
+      // Ancestors are tag-stripped; only the terminal (inner) keeps its tag.
       expect(expectResolves(target())).toBe(
-        'div#content-wrapper div.row div#content-wrapper',
+        '#content-wrapper .row div#content-wrapper',
       );
     });
 
@@ -290,7 +292,7 @@ describe('stableSelector', () => {
       // climbed past the interior weak #block-12 (which is itself omitted as
       // the href already resolves uniquely).
       const s = sel(target());
-      expect(s).toBe('div#main a[href="/buy"]');
+      expect(s).toBe('#main a[href="/buy"]');
       expect(s).not.toContain('block-12');
     });
 
@@ -537,7 +539,7 @@ describe('stableSelector', () => {
       `);
       const s = expectResolves(target());
       // href identity, anchored under the nav's stable id (structural li/ul dropped).
-      expect(s).toBe('nav#main-nav a[href="/about"]');
+      expect(s).toBe('#main-nav a[href="/about"]');
     });
 
     it('product grid cards', () => {
@@ -558,7 +560,7 @@ describe('stableSelector', () => {
         </div>
       `);
       const s = sel(target());
-      expect(s).toBe('div.product-grid div.product-card button');
+      expect(s).toBe('.product-grid .product-card button');
       // Three identical cards — ambiguity resolved by matchIndex, not the string.
       expect(matchCount(s)).toBe(3);
     });
@@ -575,7 +577,7 @@ describe('stableSelector', () => {
       `);
       const s = expectResolves(target());
       expect(s).toContain('#checkout');
-      expect(s).toBe('div#checkout button');
+      expect(s).toBe('#checkout button');
     });
 
     it('footer with multiple link sections', () => {
@@ -591,9 +593,7 @@ describe('stableSelector', () => {
           </div>
         </footer>
       `);
-      expect(expectResolves(target())).toBe(
-        'div.footer-col a[href="/careers"]',
-      );
+      expect(expectResolves(target())).toBe('.footer-col a[href="/careers"]');
     });
 
     it('table rows with action buttons', () => {
@@ -621,8 +621,8 @@ describe('stableSelector', () => {
       `);
       const s = expectResolves(target());
       // href wins over the cta-button class on the anchor; the hero section's
-      // stable class is still recorded as an identity-rich ancestor.
-      expect(s).toBe('section.hero a[href="/signup"]');
+      // stable class is still recorded as an identity-rich (tag-stripped) ancestor.
+      expect(s).toBe('.hero a[href="/signup"]');
     });
   });
 
@@ -833,15 +833,16 @@ describe('stableSelector', () => {
         <header><a href="/buy">Buy</a></header>
         <main><div class="cta"><a href="/buy" data-target="target">Buy</a></div></main>
       `);
-      // The href is kept and a stable-class ancestor (div.cta) disambiguates;
+      // The href is kept and a stable-class ancestor (.cta) disambiguates;
       // the structural <main> is dropped, descendant combinator bridges it.
-      expect(expectResolves(target())).toBe('div.cta a[href="/buy"]');
+      expect(expectResolves(target())).toBe('.cta a[href="/buy"]');
     });
 
     it('embeds an ancestor link href when clicking inner content', () => {
       setHTML('<a href="/deal"><span data-target="target">Buy</span></a>');
       const s = sel(target());
-      expect(s).toContain('a[href="/deal"]');
+      // The <a> is an ancestor here, so its tag is stripped; the span terminal keeps its.
+      expect(s).toContain('[href="/deal"]');
       expect(s).toContain('span');
     });
 
@@ -894,7 +895,9 @@ describe('stableSelector', () => {
       `);
       expect(matchCount('#lbl')).toBe(2);
       expect(matchCount('span#lbl + button')).toBe(2);
-      expect(expectResolves(target())).toBe('div.promo span#lbl + button');
+      // Ancestor .promo is tag-stripped; the terminal sibling-anchor keeps its
+      // tags (span#lbl anchors the trailing button the combinator needs).
+      expect(expectResolves(target())).toBe('.promo span#lbl + button');
     });
 
     it('prefers a descendant :has anchor over a preceding-sibling +', () => {
