@@ -216,9 +216,11 @@ describe('stableSelector', () => {
         </div>
       `);
       expect(matchCount('#content-wrapper')).toBe(2);
-      // Ancestors are tag-stripped; only the terminal (inner) keeps its tag.
+      // Ancestors are tag-stripped; only the terminal (inner) keeps its tag. The
+      // interior `.row` (a Bootstrap tier-C utility) is redundant once both id
+      // anchors are present, so it's pruned — the two ids already single it out.
       expect(expectResolves(target())).toBe(
-        '#content-wrapper .row div#content-wrapper',
+        '#content-wrapper div#content-wrapper',
       );
     });
 
@@ -643,6 +645,65 @@ describe('stableSelector', () => {
       // href wins over the cta-button class on the anchor; the hero section's
       // stable class is still recorded as an identity-rich (tag-stripped) ancestor.
       expect(s).toBe('.hero a[href="/signup"]');
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Ancestor path pruning — shed redundant low-quality class ancestors,
+  // keep semantic context and strong-id anchors.
+  // -------------------------------------------------------------------
+
+  describe('ancestor path pruning', () => {
+    it('drops a redundant framework-class ancestor but keeps the strong-id anchor', () => {
+      // Minimal extract of a WordPress page (abogado.html): a semantic-classed
+      // content div inside a framework wrapper (.wp-block-group), under the
+      // theme's skip-link landmark id. `.entry-content` alone is already unique,
+      // so the redundant framework wrapper (tier B) is pruned — but the strong-id
+      // landmark is kept (cheap, high-value cross-time anchor).
+      setHTML(`
+        <main id="wp--skip-link--target">
+          <div class="wp-block-group">
+            <div class="entry-content alignfull wp-block-post-content" data-target="target">
+              <p>content</p>
+            </div>
+          </div>
+        </main>
+      `);
+      expect(expectResolves(target())).toBe(
+        '#wp--skip-link--target div.entry-content',
+      );
+    });
+
+    it('keeps a redundant SEMANTIC-class ancestor for context', () => {
+      // .product-card is tier A. Even though the lone button is unique without
+      // it, the semantic wrapper is kept — it scopes the click meaningfully and
+      // guards against unrelated buttons appearing on a later version of the page.
+      setHTML(`
+        <div class="product-card">
+          <h3>Item</h3>
+          <button data-target="target">Add to cart</button>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).toBe('.product-card button');
+      expect(matchCount(s)).toBe(1);
+    });
+
+    it('keeps a low-quality ancestor class when it actually disambiguates', () => {
+      // The framework-classed wrapper is tier B (normally shed as redundant), but
+      // here removing it would grow the match set from 1 to 2 (two identical
+      // links) — so it earns its place and is kept.
+      setHTML(`
+        <div class="wp-block-group">
+          <a href="/buy" data-target="target">Buy</a>
+        </div>
+        <div class="other">
+          <a href="/buy">Buy</a>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).toBe('.wp-block-group a[href="/buy"]');
+      expect(matchCount(s)).toBe(1);
     });
   });
 

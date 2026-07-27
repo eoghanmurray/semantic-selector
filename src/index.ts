@@ -492,6 +492,62 @@ function stripLeadingTag(seg: string): string {
   return seg.replace(/^[a-z][a-z0-9-]*(?=[.#[:])/i, '');
 }
 
+/** One collected path segment plus the metadata the pruner needs. */
+interface PathSeg {
+  text: string;
+  /** A redundant-if-removable, low-quality (tier B/C) class ancestor. */
+  droppable: boolean;
+  /** Drop order among droppables — worst (tier C) tried first. */
+  tier: number;
+}
+
+/**
+ * Shed redundant low-quality class ancestors from a collected path.
+ *
+ * A segment "earns its place" iff removing it *increases* the match set. Because
+ * removing any segment only ever loosens the selector (the target always stays
+ * in the match set), an unchanged count means that segment added no selectivity
+ * — it is redundant. A redundant segment is worth dropping ONLY when it is also
+ * low quality (a framework/utility class, tier B/C): it is then pure cost —
+ * extra length AND an extra intermediate anchor that breaks if that wrapper is
+ * restructured away between page versions. A redundant *semantic* (tier-A)
+ * class is kept: it scopes the element meaningfully and guards against unrelated
+ * elements matching on a future version of the page. Strong-id anchors and the
+ * terminal are never candidates (a redundant strong-id anchor is deliberately
+ * kept — one segment, huge selectivity, cheap cross-time insurance).
+ *
+ * Segments arrive terminal-first; the worst tier is tried first so that if two
+ * low-quality classes are interdependent the higher-quality one survives.
+ */
+function pruneRedundant(segs: PathSeg[], root: Element): PathSeg[] {
+  const candidates = segs.filter((s) => s.droppable);
+  if (candidates.length === 0) return segs;
+  candidates.sort((a, b) => b.tier - a.tier); // tier C before tier B
+
+  const selectorOf = (list: PathSeg[]) =>
+    list
+      .map((s) => s.text)
+      .reverse()
+      .join(' ');
+  const countOf = (sel: string): number => {
+    try {
+      return root.querySelectorAll(sel).length;
+    } catch {
+      return -1; // unresolvable in this engine — treat as "can't safely drop"
+    }
+  };
+
+  let current = segs;
+  const count = countOf(selectorOf(current));
+  if (count < 0) return segs; // base selector not resolvable — leave it alone
+
+  for (const cand of candidates) {
+    const trial = current.filter((s) => s !== cand);
+    if (countOf(selectorOf(trial)) === count) current = trial; // redundant → drop
+  }
+  return current;
+}
+
 /**
  * Walk an element's ancestor path and join its identity segments with
  * descendant combinators. Purely structural ancestors (no id/url/class/`:has`
@@ -499,7 +555,8 @@ function stripLeadingTag(seg: string): string {
  *
  * Only the terminal (clicked) element keeps its tag qualifier; every ancestor
  * segment is tag-stripped (see stripLeadingTag) to keep the selector terse,
- * since the tag adds no identity there.
+ * since the tag adds no identity there. The collected path is then run through
+ * pruneRedundant to shed redundant low-quality class ancestors.
  *
  * When `includeWeak` is false a weak (CMS-enumerated) id is treated as no
  * identity at all: dropped if it's an interior ancestor, replaced by a bare tag
@@ -518,7 +575,7 @@ function buildSelectorPath(
   includeWeak: boolean,
   dedupeIds: boolean,
 ): string {
-  const segments: string[] = [];
+  const segments: PathSeg[] = [];
   let current: Element | null = el;
   let isTerminal = true;
 
@@ -530,29 +587,48 @@ function buildSelectorPath(
         : seg.seg
       : null;
     if (chosen) {
+      const usedWeak = !!(includeWeak && seg && seg.weakSeg);
+      const isAnchor = !!(seg && seg.stop);
+      // Only a *class* segment carries a tier; url/name/attr/:has/anchor/bare-tag
+      // default to tier A and are never redundancy-droppable. A weakSeg is
+      // id-bearing (present only because it disambiguates) → also never dropped.
+      const tier = seg && seg.classTier != null ? seg.classTier : CLASS_TIER_A;
+      const droppable =
+        !isTerminal && !isAnchor && !usedWeak && tier >= CLASS_TIER_B;
       // The clicked element keeps its tag (a cheap identity constraint); every
       // ancestor is tag-stripped — the tag carries no identity there.
-      segments.push(isTerminal ? chosen : stripLeadingTag(chosen));
-      if (seg && seg.stop) {
+      segments.push({
+        text: isTerminal ? chosen : stripLeadingTag(chosen),
+        droppable,
+        tier,
+      });
+      if (isAnchor) {
         // A stop assumes its anchoring id (`seg.stopId`) is a unique handle —
         // either the element's own id or a strong id on its immediate preceding
         // sibling (`prev#id + tag`). When dedupeIds is set and that id is
         // duplicated in root (malformed markup), keep the segment but climb on
         // so an ancestor disambiguates.
         const ambiguousStop =
-          dedupeIds && !!seg.stopId && ambiguousId(seg.stopId, root);
+          dedupeIds && !!seg!.stopId && ambiguousId(seg!.stopId!, root);
         if (!ambiguousStop) break;
       }
     } else if (isTerminal) {
       // The clicked element itself has no usable identity — keep a bare tag so
       // the selector still resolves to it (refined by match index + geometry).
-      segments.push(current.tagName.toLowerCase());
+      segments.push({
+        text: current.tagName.toLowerCase(),
+        droppable: false,
+        tier: CLASS_TIER_A,
+      });
     }
     current = current.parentElement;
     isTerminal = false;
   }
 
-  return segments.reverse().join(' ');
+  return pruneRedundant(segments, root)
+    .map((s) => s.text)
+    .reverse()
+    .join(' ');
 }
 
 /**
