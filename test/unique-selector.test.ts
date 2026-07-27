@@ -364,6 +364,26 @@ describe('stableSelector', () => {
       expect(expectResolves(target())).toBe('span.primary-link');
     });
 
+    it('picks the best-quality class, not the first in DOM order', () => {
+      // A WordPress block lists framework/utility classes before the semantic
+      // one; we must still pick `entry-content` (tier A) over `alignfull`
+      // (utility) and `wp-block-post-content` / `is-layout-constrained` (framework).
+      setHTML(`
+        <div>
+          <div class="alignfull wp-block-post-content entry-content is-layout-constrained" data-target="target">x</div>
+        </div>
+      `);
+      expect(sel(target())).toBe('div.entry-content');
+    });
+
+    it('falls back to a framework class when no semantic class exists', () => {
+      // alignfull is utility (tier C), wp-block-group framework (tier B): B wins.
+      setHTML(
+        '<div class="alignfull wp-block-group" data-target="target">x</div>',
+      );
+      expect(sel(target())).toBe('div.wp-block-group');
+    });
+
     it('rejects an absurdly long (generated) class name', () => {
       const longClass = 'x' + 'a'.repeat(80); // 81 chars, > MAX_IDENT_LEN
       setHTML(`

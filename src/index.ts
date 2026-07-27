@@ -110,6 +110,70 @@ function isStableClass(cn: string): boolean {
   return true;
 }
 
+// --- Class quality tiers ---
+//
+// isStableClass only rejects machine-generated garbage; it does NOT rank what
+// survives. But an element often has several "stable" classes (a WordPress block
+// carries `entry-content` alongside `wp-block-post-content`, `has-global-padding`,
+// `is-layout-constrained`, `alignfull`, …). Picking the *first in DOM order* is
+// luck. These tiers let us pick the best and, later, decide which redundant
+// ancestor classes to shed. Two axes matter and they differ here:
+//   - stability  — survives a redesign
+//   - identity   — describes *this element's* role, and narrows the match set
+// A hand-authored component/content name scores high on both; a framework class
+// is stable only while the site stays on that framework (a WP→other migration
+// breaks it) and describes the framework's machinery, not this element; a utility
+// class is presentational and shared by hundreds of elements (no selectivity).
+const CLASS_TIER_A = 0; // semantic / component name — author-authored identity
+const CLASS_TIER_B = 1; // framework-namespaced — stable within, but coupled to, a framework
+const CLASS_TIER_C = 2; // utility / atomic / layout — presentational, non-selective
+
+/**
+ * Framework namespace prefixes (WordPress core/blocks, popular page builders,
+ * component libraries). Deliberately a conservative starter list — meant to
+ * grow. A false demotion is low-harm: it only matters when a better (tier-A)
+ * class is also present, in which case demoting the framework one is correct.
+ */
+function isFrameworkClass(cn: string): boolean {
+  return (
+    /^wp-/.test(cn) || // WordPress core / blocks
+    /^(is|has)-/.test(cn) || // WP block-supports + common BEM-ish modifiers
+    /^elementor(-|$)/.test(cn) || // Elementor
+    /^et_pb_/.test(cn) || // Divi
+    /^fusion-/.test(cn) || // Avada
+    /^(vc_|wpb_)/.test(cn) || // WPBakery
+    /^ast-/.test(cn) || // Astra theme
+    /^(fl-node|fl-module)/.test(cn) || // Beaver Builder
+    /^brxe-/.test(cn) || // Bricks
+    /^(ant-|chakra-|Mui[A-Z]|oxy-)/.test(cn) // Ant / Chakra / MUI / Oxygen
+  );
+}
+
+/**
+ * Utility / atomic / grid classes: presentational, shared by many elements, so
+ * they add path length without narrowing identity. Bootstrap layout + grid +
+ * spacing/display helpers, WP alignment, common atomic spacing shapes. Also a
+ * conservative starter list.
+ */
+function isUtilityClass(cn: string): boolean {
+  return (
+    /^align(full|wide|left|right|center|none)$/.test(cn) || // WP alignment
+    /^(row|container|container-fluid)$/.test(cn) || // Bootstrap layout
+    /^col(-(xs|sm|md|lg|xl|xxl))?(-\d{1,2})?$/.test(cn) || // Bootstrap grid col
+    /^d-(flex|block|inline|inline-block|none|grid)$/.test(cn) || // display
+    /^(offset|order|g|gx|gy)-\d/.test(cn) || // grid helpers
+    /^(justify-content|align-items|align-self|text)-[a-z]+$/.test(cn) || // flex/text
+    /^[mp][trblxyse]?-\d{1,2}$/.test(cn) // spacing: m-2, px-4
+  );
+}
+
+/** Rank a (already stable) class by identity quality. Lower = better. */
+function classTier(cn: string): number {
+  if (isUtilityClass(cn)) return CLASS_TIER_C;
+  if (isFrameworkClass(cn)) return CLASS_TIER_B;
+  return CLASS_TIER_A;
+}
+
 /**
  * Build an id-based selector fragment. IDs that start with a digit can't be
  * written as `#id` without an ugly numeric escape (`#\33 col`); an
@@ -301,7 +365,7 @@ function findStableDescendantId(el: Element): string | null {
  */
 function nonIdSegment(
   el: Element,
-): { seg: string; stop?: boolean; stopId?: string } | null {
+): { seg: string; stop?: boolean; stopId?: string; classTier?: number } | null {
   const tag = el.tagName.toLowerCase();
 
   const url = urlSegment(el);
@@ -311,8 +375,19 @@ function nonIdSegment(
   if (nameSeg) return { seg: nameSeg };
 
   if (el.classList) {
+    // Among the element's stable classes, pick the best-quality one rather than
+    // the first in DOM order (which is arbitrary): a hand-authored semantic
+    // class beats a framework/utility one. `classTier` is reported so the path
+    // builder can later shed a *redundant* low-quality class ancestor.
+    let best: { cn: string; tier: number } | null = null;
     for (const cn of Array.from(el.classList)) {
-      if (isStableClass(cn)) return { seg: tag + '.' + cssEsc(cn, true) };
+      if (!isStableClass(cn)) continue;
+      const tier = classTier(cn);
+      if (!best || tier < best.tier) best = { cn, tier };
+      if (tier === CLASS_TIER_A) break; // nothing beats tier A; keep the first one
+    }
+    if (best) {
+      return { seg: tag + '.' + cssEsc(best.cn, true), classTier: best.tier };
     }
   }
 
@@ -360,6 +435,7 @@ function stableSegment(el: Element): {
   stop?: boolean;
   stopId?: string;
   weakSeg?: string;
+  classTier?: number;
 } | null {
   const tag = el.tagName.toLowerCase();
 
@@ -375,6 +451,7 @@ function stableSegment(el: Element): {
       stop: rest?.stop,
       stopId: rest?.stopId,
       weakSeg: (rest ? rest.seg : tag) + idSelector(el.id),
+      classTier: rest?.classTier,
     };
   }
 
