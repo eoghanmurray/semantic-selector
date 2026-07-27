@@ -272,10 +272,15 @@ function urlSegment(el: Element): string | null {
 // absent — the url tier handles it better (query-stripping). `name` is split
 // out from the rest: on form controls it is the *backend submission key*, so it
 // barely changes across redesigns (which routinely rewrite styling classes),
-// and therefore ranks ABOVE class. The remaining semantic attributes are weaker
-// and rank below class: `aria-label` is localized (differs across translated
-// copies of the same logical page) and `role` is coarse (shared by many
-// elements).
+// and therefore ranks ABOVE class. The remaining semantic attributes are NOT a
+// single block below class — they interleave with the class tiers by quality
+// (see nonIdSegment):
+//     tier-A class > aria-label > tier-B class > role > tier-C class > rel
+// `aria-label` is an explicit accessible name (strong identity), so it out-ranks
+// a framework/utility class it describes better — but it sits below a
+// hand-authored semantic class because it is localized (differs across
+// translated copies of a logical page). `role` is a coarse but i18n-stable
+// landmark/widget token, above only utility classes. `rel` is weakest.
 
 /** Tags where `name` is the HTML-standard control identity (form submission key). */
 const NAME_AS_CONTROL = new Set([
@@ -287,9 +292,6 @@ const NAME_AS_CONTROL = new Set([
   'fieldset',
   'output',
 ]);
-
-/** Weaker semantic attributes, ranked below class. */
-const SEMANTIC_ATTRS = ['aria-label', 'role', 'rel'];
 
 /** Reject empty / over-long / auto-generated-looking attribute values. */
 function isStableAttrValue(v: string): boolean {
@@ -314,10 +316,10 @@ function nameSegment(el: Element): string | null {
   return null;
 }
 
-/** The first stable semantic-attribute segment (aria-label/role/rel), or null. */
-function attrSegment(el: Element): string | null {
+/** The first stable segment among the given attribute names (`tag[attr="v"]`), or null. */
+function attrSegment(el: Element, names: string[]): string | null {
   const tag = el.tagName.toLowerCase();
-  for (const name of SEMANTIC_ATTRS) {
+  for (const name of names) {
     const v = el.getAttribute(name);
     if (v && isStableAttrValue(v)) {
       return tag + '[' + name + '="' + cssEsc(v, false) + '"]';
@@ -353,8 +355,9 @@ function findStableDescendantId(el: Element): string | null {
  *  - url (href/src)
  *  - a form control's `name` (the backend submission key — more durable than
  *    styling classes, which redesigns rewrite)
- *  - stable class
- *  - a weaker semantic attribute (`aria-label`/`role`/`rel`)
+ *  - stable class + semantic attribute, interleaved by quality:
+ *    tier-A class > `aria-label` > tier-B class > `role` > tier-C class > `rel`
+ *    (a low-quality class loses to an explicit accessible name / landmark role)
  *  - a stable id within its subtree (`tag:has(#id)`) — the id moves *with* the
  *    element, so it's the more robust of the two id-anchored rescues
  *  - a stable id on its immediate preceding sibling (`prev#id + tag`) — e.g. a
@@ -374,25 +377,38 @@ function nonIdSegment(
   const nameSeg = nameSegment(el);
   if (nameSeg) return { seg: nameSeg };
 
+  // Class and semantic attributes interleave by quality (see comment above):
+  //   tier-A class > aria-label > tier-B class > role > tier-C class > rel.
+  // Pick the element's best-quality stable class once, then walk the interleaved
+  // ladder. `classTier` is reported so the path builder can later shed a
+  // *redundant* low-quality class ancestor.
+  let bestClass: { cn: string; tier: number } | null = null;
   if (el.classList) {
-    // Among the element's stable classes, pick the best-quality one rather than
-    // the first in DOM order (which is arbitrary): a hand-authored semantic
-    // class beats a framework/utility one. `classTier` is reported so the path
-    // builder can later shed a *redundant* low-quality class ancestor.
-    let best: { cn: string; tier: number } | null = null;
     for (const cn of Array.from(el.classList)) {
       if (!isStableClass(cn)) continue;
       const tier = classTier(cn);
-      if (!best || tier < best.tier) best = { cn, tier };
+      if (!bestClass || tier < bestClass.tier) bestClass = { cn, tier };
       if (tier === CLASS_TIER_A) break; // nothing beats tier A; keep the first one
     }
-    if (best) {
-      return { seg: tag + '.' + cssEsc(best.cn, true), classTier: best.tier };
-    }
   }
+  const classSeg = bestClass
+    ? { seg: tag + '.' + cssEsc(bestClass.cn, true), classTier: bestClass.tier }
+    : null;
 
-  const attrSeg = attrSegment(el);
-  if (attrSeg) return { seg: attrSeg };
+  if (classSeg && bestClass!.tier === CLASS_TIER_A) return classSeg;
+
+  const ariaSeg = attrSegment(el, ['aria-label']);
+  if (ariaSeg) return { seg: ariaSeg };
+
+  if (classSeg && bestClass!.tier === CLASS_TIER_B) return classSeg;
+
+  const roleSeg = attrSegment(el, ['role']);
+  if (roleSeg) return { seg: roleSeg };
+
+  if (classSeg) return classSeg; // tier C — still better than rel / structural anchors
+
+  const relSeg = attrSegment(el, ['rel']);
+  if (relSeg) return { seg: relSeg };
 
   const descId = findStableDescendantId(el);
   if (descId) return { seg: tag + ':has(' + idSelector(descId) + ')' };
@@ -419,9 +435,9 @@ function nonIdSegment(
  * The identity segment for one element, or null if it carries no identity.
  *
  * Priority: (1) a strong own id [stops the walk], then everything in
- * `nonIdSegment` (url > name > class > semantic attr > `:has(#id)` >
- * `prev#id + tag`). A purely structural element (none of these) returns null
- * and is dropped from the path.
+ * `nonIdSegment` (url > name > {class/aria-label/role/rel interleaved by
+ * quality} > `:has(#id)` > `prev#id + tag`). A purely structural element (none
+ * of these) returns null and is dropped from the path.
  *
  * A *weak*, CMS-enumerated id (`block-12`, see isWeakId) is NOT a unique handle,
  * so it never replaces the element's real identity and never stops the walk.

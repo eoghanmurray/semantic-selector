@@ -439,13 +439,51 @@ describe('stableSelector', () => {
       expect(s).not.toContain('.cta');
     });
 
-    it('prefers a stable class over a weak semantic attribute (aria-label)', () => {
+    it('prefers a SEMANTIC (tier-A) class over aria-label', () => {
+      // A hand-authored class beats aria-label (which is localized / i18n-fragile).
       setHTML(
         '<div class="hero" aria-label="Hero banner" data-target="target">x</div>',
       );
       const s = sel(target());
       expect(s).toBe('div.hero');
       expect(s).not.toContain('aria-label=');
+    });
+
+    it('prefers aria-label over a low-quality framework class', () => {
+      // The only class is framework-namespaced (tier B) — the explicit accessible
+      // name describes the element better, so it wins.
+      setHTML(
+        '<button class="wp-block-search__button" aria-label="Search" data-target="target">x</button>',
+      );
+      const s = sel(target());
+      expect(s).toBe('button[aria-label="Search"]');
+      expect(s).not.toContain('wp-block-search');
+    });
+
+    it('prefers aria-label over a utility class', () => {
+      setHTML(
+        '<div class="col-md-9" aria-label="Main content" data-target="target">x</div>',
+      );
+      const s = sel(target());
+      expect(s).toBe('div[aria-label="Main content"]');
+      expect(s).not.toContain('col-md-9');
+    });
+
+    it('prefers a framework (tier-B) class over a coarse role', () => {
+      // A framework class is more specific than the coarse, shared role token.
+      setHTML(
+        '<div class="wp-block-navigation" role="navigation" data-target="target">x</div>',
+      );
+      expect(sel(target())).toBe('div.wp-block-navigation');
+    });
+
+    it('prefers a landmark role over a utility class', () => {
+      // role is semantic (about purpose) and i18n-stable; a utility class is
+      // presentational — so role wins over tier C.
+      setHTML('<div class="d-flex" role="search" data-target="target">x</div>');
+      const s = sel(target());
+      expect(s).toBe('div[role="search"]');
+      expect(s).not.toContain('d-flex');
     });
 
     it('only promotes name on form controls, not arbitrary tags', () => {
