@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { stableSelector } from '../src/index';
+import { semanticSelector } from '../src/index';
 
 /**
  * Helper: set document.body innerHTML and return body as root.
@@ -21,7 +21,7 @@ function target(name = 'target'): HTMLElement {
 
 /** Build the identity-only selector and assert it's non-empty. */
 function sel(el: Element, root: HTMLElement = document.body): string {
-  const s = stableSelector(el, root);
+  const s = semanticSelector(el, root);
   expect(s).toBeTruthy();
   return s;
 }
@@ -43,7 +43,7 @@ function expectResolves(
   return s;
 }
 
-describe('stableSelector', () => {
+describe('semanticSelector', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
   });
@@ -845,7 +845,7 @@ describe('stableSelector', () => {
       `);
       // SVG elements are Element but not HTMLElement — should still work
       const el = document.querySelector('[data-target="target"]') as Element;
-      const s = stableSelector(el, document.body);
+      const s = semanticSelector(el, document.body);
       expect(s).toBeTruthy();
       const matches = document.body.querySelectorAll(s);
       expect(matches.length).toBe(1);
@@ -857,7 +857,7 @@ describe('stableSelector', () => {
       const child = document.createElement('span');
       detached.appendChild(child);
       // Not in DOM — should handle gracefully
-      const s = stableSelector(child, document.body);
+      const s = semanticSelector(child, document.body);
       expect(typeof s).toBe('string');
     });
 

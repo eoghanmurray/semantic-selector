@@ -6,9 +6,9 @@
  * exactly what our identity-only model gives up (ambiguity is recorded as
  * matchIndex/matchCount, not forced into the selector), so we can't assert it.
  *
- * Instead we assert the weaker-but-essential SOUNDNESS invariant
+ * Instead we assert the weaker-but-essential SOUNDNESS invariant that must hold
  * that must hold over the same messy real HTML:
- *   - stableSelector never throws on any element,
+ *   - semanticSelector never throws on any element,
  *   - the result is a syntactically valid selector (querySelectorAll doesn't
  *     throw),
  *   - and the target element is always WITHIN the returned match set (our
@@ -22,7 +22,7 @@ import { parseHTML } from 'linkedom';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { stableSelector } from '../src/index';
+import { semanticSelector } from '../src/index';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -56,7 +56,7 @@ describe('finder real-page corpus (soundness invariant)', () => {
         'utf8',
       );
       const { document: doc } = parseHTML(html);
-      // stableSelector consults the global `document` for its documentElement
+      // semanticSelector consults the global `document` for its documentElement
       // stop-condition; point it at the fixture's document.
       (globalThis as Record<string, unknown>).document = doc;
 
@@ -68,10 +68,10 @@ describe('finder real-page corpus (soundness invariant)', () => {
       for (const el of elements) {
         let selectorStr: string;
         try {
-          selectorStr = stableSelector(el, body);
+          selectorStr = semanticSelector(el, body);
         } catch (err) {
           throw new Error(
-            `stableSelector threw on <${el.tagName.toLowerCase()}>: ${String(
+            `semanticSelector threw on <${el.tagName.toLowerCase()}>: ${String(
               err,
             )}`,
           );

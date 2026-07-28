@@ -1,15 +1,18 @@
 /**
- * stable-selector — generate a *stable*, identity-only CSS selector for a DOM
- * element.
+ * semantic-selector — generate a *semantic*, identity-only CSS selector for a
+ * DOM element: it ranks each ancestor by how meaningful its identity is
+ * (id > url > control name > semantic class > ARIA), never by position.
  *
- * Unlike a uniqueness-seeking generator (finder, Robula+), the result is NOT
- * guaranteed to match exactly one element: several same-identity elements
- * (e.g. a grid of `a[href="/buy"]`) collapse to the same selector by design.
- * Consumers resolve residual ambiguity out-of-band (a match index plus
- * geometry) rather than baking brittle positional ordinals into the string,
- * which keeps the selector resilient to DOM reordering.
+ * Unlike a uniqueness-seeking generator (finder, Robula+, qaz1230sp's
+ * stable-selector), the result is NOT guaranteed to match exactly one element:
+ * several same-identity elements (e.g. a grid of `a[href="/buy"]`) collapse to
+ * the same selector by design. Consumers resolve residual ambiguity out-of-band
+ * (a match index plus geometry) rather than baking brittle positional ordinals
+ * (`:nth-of-type`) into the string, which keeps the selector resilient to DOM
+ * reordering and restyling between long term versions of the page.
  *
- * See docs/prior-art.md for how this compares to Robula+, PostHog and finder.
+ * See README.md / docs/prior-art.md for how this compares to finder, Robula+,
+ * PostHog and stable-selector.
  */
 
 // --- CSS identifier / string escaping ---
@@ -443,10 +446,10 @@ function nonIdSegment(
  * so it never replaces the element's real identity and never stops the walk.
  * Instead `seg` carries the element's non-id identity (or null) and `weakSeg`
  * carries that same identity *augmented* with the weak id (`div.block#block-12`,
- * or `div#block-12` when there's nothing else). stableSelector uses `weakSeg`
+ * or `div#block-12` when there's nothing else). semanticSelector uses `weakSeg`
  * only when the weak-id-free selector turns out ambiguous.
  */
-function stableSegment(el: Element): {
+function semanticSegment(el: Element): {
   seg: string | null;
   stop?: boolean;
   stopId?: string;
@@ -596,7 +599,7 @@ function buildSelectorPath(
   let isTerminal = true;
 
   while (current && current !== root && current !== document.documentElement) {
-    const seg = stableSegment(current);
+    const seg = semanticSegment(current);
     const chosen = seg
       ? includeWeak && seg.weakSeg
         ? seg.weakSeg
@@ -663,7 +666,7 @@ function buildSelectorPath(
  * actually help narrow it down). The terminal element always contributes a
  * segment (its identity, or a bare tag) so the selector resolves to it.
  */
-export function stableSelector(
+export function semanticSelector(
   el: Element,
   root: Element = document.body,
 ): string {

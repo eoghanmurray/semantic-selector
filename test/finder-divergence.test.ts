@@ -13,7 +13,7 @@
  * finder's, using finder's own fixtures where it has them.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { stableSelector } from '../src/index';
+import { semanticSelector } from '../src/index';
 
 function setHTML(html: string) {
   document.body.innerHTML = html;
@@ -34,8 +34,8 @@ describe('divergence from finder', () => {
     // the 1-of-2 / 2-of-2 position is recorded separately, not in the string.
     setHTML('<div id="foo"></div><div id="foo"></div>');
     const divs = document.body.querySelectorAll('div');
-    expect(stableSelector(divs[0])).toBe('div#foo');
-    expect(stableSelector(divs[1])).toBe('div#foo');
+    expect(semanticSelector(divs[0])).toBe('div#foo');
+    expect(semanticSelector(divs[1])).toBe('div#foo');
     expect(matchCount('div#foo')).toBe(2);
   });
 
@@ -43,7 +43,7 @@ describe('divergence from finder', () => {
   it('walks through a duplicated id without nth-of-type', () => {
     setHTML('<div id="foo"><i></i></div><div id="foo"><i></i></div>');
     const i = document.body.querySelector('i')!;
-    const s = stableSelector(i);
+    const s = semanticSelector(i);
     expect(s).toBe('#foo i');
     expect(s).not.toContain('nth-of-type');
     expect(matchCount(s)).toBe(2);
@@ -56,7 +56,7 @@ describe('divergence from finder', () => {
     // positional ordinal to stay unique, whereas we accept the ambiguity.
     setHTML('<div class="css-175oi2r"></div><div class="css-y6a5a9i"></div>');
     const divs = document.body.querySelectorAll('div');
-    const s = stableSelector(divs[0]);
+    const s = semanticSelector(divs[0]);
     expect(s).toBe('div');
     expect(s).not.toContain('css-');
     expect(matchCount(s)).toBe(2);
@@ -68,7 +68,7 @@ describe('divergence from finder', () => {
     // stable [id="..."] anchor (finder forks PR #69).
     setHTML('<div id="12345"><span>x</span></div>');
     const span = document.body.querySelector('span')!;
-    expect(stableSelector(span)).toBe('[id="12345"] span');
+    expect(semanticSelector(span)).toBe('[id="12345"] span');
   });
 
   it('never emits a positional ordinal for identity-less siblings', () => {
@@ -76,7 +76,7 @@ describe('divergence from finder', () => {
     // encode position; all three collapse to "div".
     setHTML('<main><div>a</div><div>b</div><div>c</div></main>');
     const last = document.body.querySelectorAll('div')[2];
-    const s = stableSelector(last);
+    const s = semanticSelector(last);
     expect(s).toBe('div');
     expect(s).not.toContain('nth-');
     expect(matchCount(s)).toBe(3);
@@ -86,6 +86,6 @@ describe('divergence from finder', () => {
     // Previously a gap; now both use the name attribute as an anchor.
     setHTML('<form><input><button name="checkout-submit">Pay</button></form>');
     const btn = document.body.querySelector('button')!;
-    expect(stableSelector(btn)).toBe('button[name="checkout-submit"]');
+    expect(semanticSelector(btn)).toBe('button[name="checkout-submit"]');
   });
 });

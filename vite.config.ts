@@ -8,8 +8,8 @@ export default defineConfig({
   build: {
     lib: {
       entry: resolve(__dirname, 'src/index.ts'),
-      name: 'stableSelector',
-      fileName: 'stable-selector',
+      name: 'semanticSelector',
+      fileName: 'semantic-selector',
       formats: ['es', 'cjs', 'umd'],
     },
     sourcemap: true,
