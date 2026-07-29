@@ -41,7 +41,10 @@
     "test:watch": "vitest watch",
     "build": "tsc --noEmit && vite build",
     "check-types": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "npm run build && changeset publish"
   },
   "keywords": [
     "css-selector",
@@ -52,6 +55,7 @@
     "selector"
   ],
   "devDependencies": {
+    "@changesets/cli": "^2.31.1",
     "jsdom": "^24.0.0",
     "linkedom": "^0.14.26",
     "prettier": "3.9.6",
