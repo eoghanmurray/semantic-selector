@@ -36,7 +36,7 @@ semanticSelector(el, someRoot); // relative to a given root
 semanticSelector(el: Element, root: Element = document.body): string
 ```
 
-Browser (UMD global `semanticSelector`):
+#### Browser (UMD global `semanticSelector`):
 
 ```html
 <script src="https://unpkg.com/semantic-selector"></script>
@@ -44,6 +44,51 @@ Browser (UMD global `semanticSelector`):
   semanticSelector(document.querySelector('#target'));
 </script>
 ```
+
+### What you get back
+
+`semanticSelector` returns a **plain string** — the selector.
+Given the following markup (two identical buy buttons):
+
+```html
+<main>
+  <section class="wp-block-group product-card">
+    <a class="wp-block-button__link buy-button" href="/checkout?utm_source=x">Buy now</a>
+  </section>
+  <section class="wp-block-group product-card">
+    <a class="wp-block-button__link buy-button" href="/checkout?utm_source=y">Buy now</a>
+  </section>
+</main>
+```
+
+```ts
+const el = document.querySelectorAll('.buy-button')[1];
+semanticSelector(el);
+// → '.product-card a[href^="/checkout"]'
+```
+
+Note what happened: the framework classes (`wp-block-group`,
+`wp-block-button__link`) and the volatile `?utm_source=…` query were dropped, the
+semantic `.product-card` ancestor was kept, and — because both buttons in this toy example can be considered to have the same identity — the result deliberately matches **both** (no`:nth-of-type` inserted to force uniqueness).
+
+Since the selector is not guaranteed unique, the caller resolves any residual
+ambiguity out-of-band by pairing it with a match index + count (see [Selector
+Uniqueness](#selector-uniqueness-on-page-vs-between-page-versions)):
+
+```ts
+const selector = semanticSelector(el);
+const matches = Array.from(document.querySelectorAll(selector));
+
+const result = {
+  selector, //                  → '.product-card a[href^="/checkout"]'
+  selectorMatchIndex: matches.indexOf(el), // → 1  (0-based position among matches)
+  selectorMatchCount: matches.length, //       → 2  (total elements this matches)
+};
+```
+
+To relocate the element later, re-run the selector against the new page and take
+the element at `selectorMatchIndex` (optionally cross-checked against recorded
+geometry).
 
 ## How it ranks identity
 
