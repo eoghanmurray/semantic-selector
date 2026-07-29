@@ -69,17 +69,18 @@ function isStableId(id: string): boolean {
 }
 
 /**
- * A "weak" stable id: a word stem, a separator, then a trailing number, e.g.
- * `block-12`, `item-3`, `wpforms-field_5`. These come from page builders/CMSes
- * that enumerate blocks per page, so the number is reassigned when the page is
- * re-edited — usable as a *hint* but not as a globally-unique handle. The walk
- * must NOT stop on one, and we only fold it into the selector when the weaker
- * (weak-id-free) selector is otherwise ambiguous. Deliberately narrow (requires
- * a separator before the digits, so content ids like `heading2` stay strong);
- * the category is meant to grow.
+ * A "weak" stable id: a word stem ending in a separator and a trailing number,
+ * e.g. `block-12`, `item-3`, `wpforms-field_5`, `s3_1_offset_2`. Page
+ * builders/CMSes enumerate blocks/sections/gradient-stops per page, so the
+ * number is reassigned when the page is re-edited — a *hint*, not a
+ * globally-unique handle. The walk must NOT stop on one; we only fold it into
+ * the selector when the weak-id-free selector is otherwise ambiguous.
+ *
+ * The separator right before the digits is required, so content ids like
+ * `heading2` stay strong; digits earlier in the stem don't matter.
  */
 function isWeakId(id: string): boolean {
-  return /^[a-z][a-z-]*[-_]\d+$/i.test(id);
+  return /^[a-z][\w-]*[-_]\d+$/i.test(id);
 }
 
 /**

@@ -302,6 +302,28 @@ describe('semanticSelector', () => {
       setHTML('<div id="section2" data-target="target">x</div>');
       expect(sel(target())).toBe('div#section2');
     });
+
+    it('treats an enumerated id with digits earlier in the stem as weak', () => {
+      // `s3_1_offset_2` (a WordPress SVG gradient stop): the `3` in the stem must
+      // not hide the trailing `_2` enumeration. A strong id would stop the walk
+      // and emit `#s3_1_offset_2`; a weak one is dropped when already unique.
+      setHTML(
+        '<section><div id="s3_1_offset_2" data-target="target">x</div></section>',
+      );
+      const s = sel(target());
+      expect(s).toBe('div');
+      expect(s).not.toContain('s3_1_offset_2');
+    });
+
+    it('folds an enumerated (stem-digit) id in to disambiguate siblings', () => {
+      setHTML(`
+        <div id="s3_1_offset_1">a</div>
+        <div id="s3_1_offset_2" data-target="target">b</div>
+      `);
+      const s = sel(target());
+      expect(s).toBe('div#s3_1_offset_2');
+      expect(matchCount(s)).toBe(1);
+    });
   });
 
   // -------------------------------------------------------------------
