@@ -13,7 +13,7 @@ jobs:
     permissions:
       contents: write # to push the version-bump commit / create the release
       pull-requests: write # to open the "Version Packages" PR
-      id-token: write # for npm provenance
+      id-token: write # for npm Trusted Publishing (OIDC) + provenance
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,6 +25,10 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
 
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; Node 20 ships npm 10.
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: npm ci
 
@@ -33,7 +37,9 @@ jobs:
 
       # Opens/updates a "Version Packages" PR when changesets are present.
       # When that PR is merged (versions bumped, changesets consumed), the same
-      # step instead runs `npm run release` to publish to npm.
+      # step instead runs `npm run release` to publish to npm. Auth is via
+      # Trusted Publishing (OIDC) — no NPM_TOKEN secret; npm exchanges the
+      # id-token minted per run for a short-lived publish credential.
       - name: Create Release PR or publish
         uses: changesets/action@v1
         with:
@@ -41,5 +47,3 @@ jobs:
           publish: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
