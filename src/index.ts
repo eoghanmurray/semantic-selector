@@ -485,7 +485,7 @@ function semanticSegment(el: Element): {
  * `#content-wrapper`). When that happens we must NOT stop on it, or the
  * selector silently collapses onto several elements.
  */
-function ambiguousId(id: string, root: Element): boolean {
+function ambiguousId(id: string, root: Element | ShadowRoot): boolean {
   try {
     return root.querySelectorAll(idSelector(id)).length > 1;
   } catch {
@@ -539,7 +539,7 @@ interface PathSeg {
  * Segments arrive terminal-first; the worst tier is tried first so that if two
  * low-quality classes are interdependent the higher-quality one survives.
  */
-function pruneRedundant(segs: PathSeg[], root: Element): PathSeg[] {
+function pruneRedundant(segs: PathSeg[], root: Element | ShadowRoot): PathSeg[] {
   const candidates = segs.filter((s) => s.droppable);
   if (candidates.length === 0) return segs;
   candidates.sort((a, b) => b.tier - a.tier); // tier C before tier B
@@ -591,7 +591,7 @@ function pruneRedundant(segs: PathSeg[], root: Element): PathSeg[] {
  */
 function buildSelectorPath(
   el: Element,
-  root: Element,
+  root: Element | ShadowRoot,
   includeWeak: boolean,
   dedupeIds: boolean,
 ): string {
@@ -669,7 +669,7 @@ function buildSelectorPath(
  */
 export function semanticSelector(
   el: Element,
-  root: Element = document.body,
+  root: Element | ShadowRoot = document.body,
 ): string {
   if (el === root) return el.tagName.toLowerCase();
   if (!el.tagName) return ''; // e.g. document node
