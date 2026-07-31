@@ -1,6 +1,6 @@
 # A semantic selector (not a unique one)
 
-This project aims to generate a semantic or 'meaningful' CSS selector for a DOM element. We prefer to use good class names, ids, and certain attributes over DOM position / structure to give a greater chance that the selector will still point to the same element(s) even if the DOM content is shifted around and the surrounding page has been updated over time. The library is picky and detects and demote common framework-generated and presentational classes which are assumed to be more often swapped in and out to change the appearance or position of an element.
+This project aims to generate a semantic or 'meaningful' CSS selector for a DOM element. We prefer to use good class names, ids, and certain attributes over DOM position / structure to give a greater chance that the selector will still point to the same element(s) even if the DOM content is shifted around and the surrounding page has been updated over time. The library is picky and detects and demotes common framework-generated and presentational classes which are assumed to be more often swapped in and out to change the appearance or position of an element.
 
 It does **not** guarantee that it will generate a _unique_ selector across all the elements on the page.
 
