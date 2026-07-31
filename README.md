@@ -1,20 +1,16 @@
 # A semantic selector (not a unique one)
 
-This project aims to generate a semantic or 'meaningful' CSS selector for a DOM element. We prefer to use class names, ids, and certain attributes over DOM position / structure to give a greater chance that the selector will still point to the same element(s) even if the DOM content is shifted around and the surrounding page has been updated over time. To this end, the library detects and demote common framework-generated and presentational classes which are assumed to be more often swapped in and out to change the appearance or position of an element.
+This project aims to generate a semantic or 'meaningful' CSS selector for a DOM element. We prefer to use good class names, ids, and certain attributes over DOM position / structure to give a greater chance that the selector will still point to the same element(s) even if the DOM content is shifted around and the surrounding page has been updated over time. The library is picky and detects and demote common framework-generated and presentational classes which are assumed to be more often swapped in and out to change the appearance or position of an element.
 
 It does **not** guarantee that it will generate a _unique_ selector across all the elements on the page.
 
 ## Selector Uniqueness: on-page vs. between page versions
 
-Selector uniqueness is often achieved in other libraries with positional ordinals (`:nth-of-type`, `:nth-child`) and/or over specification of DOM structure (`div > span > div`) This library deliberately avoids that, and instead, separately to the selector, outputs the position of the selected element on the page, along with the total number of matched elements. So instead of injecting a local '_nth_'' position into a non-deterministic part of the selector (which is brittle), it focuses on generating a good selector first, along with a global '_nth_'. This position information can be enough to re-locate the 'same' element at a later point in time, although depending on the use-case supplementary information such as record-time element dimensions can add disambiguation firepower.
+Selector uniqueness is often achieved in other libraries with positional ordinals (`:nth-of-type`, `:nth-child`) and/or over specification of DOM structure (`div > span > div`).     This library deliberately avoids that, and instead focuses only on generating a good selector. The uniqueness constraint means that the choice of selector is dictated by other elements which may only be present in the current version of the page. Other libraries have to continue iterating, adding incidental noise to fabricate a distinction in order to satisfy the uniqueness constraint.
 
-The library satisfied itself that in pathalogical cases, multiple elements can have little meaningful difference between them e.g. an author duplicates an identical 'Buy Now' button on every section on the page; the meaningful thing we want to capture is:
+Instead we let the calling code decide on how to distinguish between multiple elements if required, e.g. by also recording element dimensions, or by recording that the target element is the 2nd on the page (a global 'nth' positional in terms of `document.querySelectorAll` instead of a brittle local 'nth' somewhere in the selector).
 
-- that it is a buy button with the following significant ancestry (the selector)
 
-- that it's the 2nd such button on the page
-
-Other libraries which would have stopped their search (if there were only one button on the page) have to continue iterating, adding incidental noise to fabricate a distinction in order to satisfy the uniqueness constraint.
 
 ## Install
 
@@ -129,7 +125,7 @@ identifiers.
 | --------------------------- | ------------------------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------------------------------- |
 | Goal                        | Semantic, long term 'identity' of an element between page versions | Shortest **unique** selector            | **Unique**, stable selector                                                             |
 | Selection                   | Fixed-priority ladder                                              | Penalty **search** for shortest unique  | 4-dimension weighted **scoring** (uniqueness 0.4, stability 0.35, brevity, readability) |
-| Selector on-page uniqueness | **Not required** → caller always receives matchIndex + match count | Required — keeps searching              | Required — scored down; structural fallback forces it                                   |
+| Selector on-page uniqueness | **Not required** → caller computes matchIndex + count out-of-band  | Required — keeps searching              | Required — scored down; structural fallback forces it                                   |
 | Positional ordinals         | never in selector itself (see matchIndex)                          | `:nth-child` when needed                | `:nth-of-type` when needed                                                              |
 | Combinators                 | Descendant                                                         | Descendant                              | Direct child `>`                                                                        |
 | Ancestor structure          | Identity-only; tags stripped; redundant low-quality pruned         | Minimal unique path                     | Path up to `maxDepth`, `nth`-enriched                                                   |
