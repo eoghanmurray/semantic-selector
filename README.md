@@ -10,8 +10,6 @@ Selector uniqueness is often achieved in other libraries with positional ordinal
 
 Instead we let the calling code decide on how to distinguish between multiple elements if required, e.g. by also recording element dimensions, or by recording that the target element is the 2nd on the page (a global 'nth' positional in terms of `document.querySelectorAll` instead of a brittle local 'nth' somewhere in the selector).
 
-
-
 ## Install
 
 ```sh
@@ -49,10 +47,14 @@ Given the following markup (two identical buy buttons):
 ```html
 <main>
   <section class="wp-block-group product-card">
-    <a class="wp-block-button__link buy-button" href="/checkout?utm_source=x">Buy now</a>
+    <a class="wp-block-button__link buy-button" href="/checkout?utm_source=x"
+      >Buy now</a
+    >
   </section>
   <section class="wp-block-group product-card">
-    <a class="wp-block-button__link buy-button" href="/checkout?utm_source=y">Buy now</a>
+    <a class="wp-block-button__link buy-button" href="/checkout?utm_source=y"
+      >Buy now</a
+    >
   </section>
 </main>
 ```
@@ -90,7 +92,7 @@ geometry).
 
 Per element, best → worst:
 
-1. a strong own **id** (stops the walk)
+1. a stable own **id** (the top rank; a stable id anywhere on the path ends the walk)
 2. **url** — `href` / `src`, with volatile query/hash stripping
 3. a form control's **name** — the backend submission key
 4. **class** and **ARIA**, interleaved by quality:
@@ -103,11 +105,19 @@ B = framework-namespaced (`wp-…`, `elementor…`, `Mui…`), C = utility/atomi
 (Bootstrap grid, spacing helpers). The best-tier class is chosen (not the first
 in DOM order), and a low-quality class loses to an explicit `aria-label`.
 
-**Structural noise is dropped.** Only the clicked element keeps its tag; ancestor
-tags are stripped (`#nav a[href="/x"]`, not `nav#nav > ul > li > a…`). Ancestors
-with no identity are omitted entirely, and a **redundant** low-quality class
-ancestor (one whose removal doesn't grow the match set) is pruned — so semantic
-context and strong-id anchors survive, framework wrappers don't.
+**Structural noise is dropped, by a monotone ratchet.** Only the clicked element
+keeps its tag; ancestor tags are stripped (`#nav a[href="/x"]`, not
+`nav#nav > ul > li > a…`). The _nearest_ identity-bearing ancestor is always kept
+as a container anchor — which block the target sits in (the `.wp-block-group`
+around one of several `a[href="/buy"]`) — even if it ranks below the target's own
+identity. Above that anchor, a further ancestor earns a segment only if its
+identity is _strictly better_ than everything already kept, so a stack of
+same-tier wrapper classes (`gallery__carousel` in `gallery__wrapper` in
+`gallery`) collapses to a single representative, and a stable id ends the walk.
+This is computed from the element and its ancestors alone — **no queries against
+the wider page** — so the same subtree always yields the same selector, and
+residual ambiguity is left to the caller's match index rather than chased with
+extra context.
 
 **Generated values are rejected** for both ids and classes: ember, React
 `useId`, Radix, MUI, Headless UI, Angular Material/CDK, uuid/hex hashes,
@@ -121,18 +131,18 @@ identifiers.
 [`stable-selector`](https://github.com/qaz1230sp/stable-selector) addresses the same problem but is still strongly weighted towards finding a unique selector in the _current_ document, whereas `semantic-selector` aims to produce a selector which will still point to the same element in future versions of the document.
 `semantic-selector` deliberately avoids **structure** and **position**.
 
-|                             | **semantic-selector**                                              | **finder** (antonmedv)                  | **stable-selector** (qaz1230sp)                                                         |
-| --------------------------- | ------------------------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------------------------------- |
-| Goal                        | Semantic, long term 'identity' of an element between page versions | Shortest **unique** selector            | **Unique**, stable selector                                                             |
-| Selection                   | Fixed-priority ladder                                              | Penalty **search** for shortest unique  | 4-dimension weighted **scoring** (uniqueness 0.4, stability 0.35, brevity, readability) |
-| Selector on-page uniqueness | **Not required** → caller computes matchIndex + count out-of-band  | Required — keeps searching              | Required — scored down; structural fallback forces it                                   |
-| Positional ordinals         | never in selector itself (see matchIndex)                          | `:nth-child` when needed                | `:nth-of-type` when needed                                                              |
-| Combinators                 | Descendant                                                         | Descendant                              | Direct child `>`                                                                        |
-| Ancestor structure          | Identity-only; tags stripped; redundant low-quality pruned         | Minimal unique path                     | Path up to `maxDepth`, `nth`-enriched                                                   |
-| Value filtering             | Reject-lists for known frameworks                                  | `wordLike` (rejects digits/short names) | 3 layers: built-in patterns + **Shannon-entropy heuristic** + user blacklist            |
-| Class quality               | **A/B/C semantic tiers**, best chosen                              | first N matching classes                | stable classes (up to 3), no semantic tier                                              |
-| Output                      | CSS                                                                | CSS                                     | **CSS + XPath + Playwright**                                                            |
-| Config                      | `(el, root)` only                                                  | predicates + threshold                  | extensive (`configure()`, priorities, blacklist, formats, maxDepth)                     |
+|                             | **semantic-selector**                                                     | **finder** (antonmedv)                  | **stable-selector** (qaz1230sp)                                                         |
+| --------------------------- | ------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------- |
+| Goal                        | Semantic, long term 'identity' of an element between page versions        | Shortest **unique** selector            | **Unique**, stable selector                                                             |
+| Selection                   | Fixed-priority ladder                                                     | Penalty **search** for shortest unique  | 4-dimension weighted **scoring** (uniqueness 0.4, stability 0.35, brevity, readability) |
+| Selector on-page uniqueness | **Not required** → caller computes matchIndex + count out-of-band         | Required — keeps searching              | Required — scored down; structural fallback forces it                                   |
+| Positional ordinals         | never in selector itself (see matchIndex)                                 | `:nth-child` when needed                | `:nth-of-type` when needed                                                              |
+| Combinators                 | Descendant                                                                | Descendant                              | Direct child `>`                                                                        |
+| Ancestor structure          | Identity-only; tags stripped; monotone identity ratchet (no page queries) | Minimal unique path                     | Path up to `maxDepth`, `nth`-enriched                                                   |
+| Value filtering             | Reject-lists for known frameworks                                         | `wordLike` (rejects digits/short names) | 3 layers: built-in patterns + **Shannon-entropy heuristic** + user blacklist            |
+| Class quality               | **A/B/C semantic tiers**, best chosen                                     | first N matching classes                | stable classes (up to 3), no semantic tier                                              |
+| Output                      | CSS                                                                       | CSS                                     | **CSS + XPath + Playwright**                                                            |
+| Config                      | `(el, root)` only                                                         | predicates + threshold                  | extensive (`configure()`, priorities, blacklist, formats, maxDepth)                     |
 
 The trade-off is about **when** the selector is used:
 

@@ -89,30 +89,6 @@ function isStableId(id: string): boolean {
 }
 
 /**
- * A "weak" stable id: a word stem ending in a separator and a trailing number,
- * e.g. `block-12`, `item-3`, `wpforms-field_5`, `s3_1_offset_2`. Page
- * builders/CMSes enumerate blocks/sections/gradient-stops per page, so the
- * number is reassigned when the page is re-edited — a *hint*, not a
- * globally-unique handle. The walk must NOT stop on one; we only fold it into
- * the selector when the weak-id-free selector is otherwise ambiguous.
- *
- * The separator right before the digits is required, so content ids like
- * `heading2` stay strong; digits earlier in the stem don't matter.
- */
-function isWeakId(id: string): boolean {
-  return /^[a-z][\w-]*[-_]\d+$/i.test(id);
-}
-
-/**
- * A *strong* id: stable AND not weak. Only strong ids may serve as a unique
- * anchor (own-id stop, `:has(#id)` descendant, `prev#id + tag` sibling); a weak
- * id is no better as someone else's anchor than as the element's own handle.
- */
-function isStrongId(id: string): boolean {
-  return isStableId(id) && !isWeakId(id);
-}
-
-/**
  * Max length for an identifier we are willing to bake into a selector (class
  * name, attribute value). Anything longer is almost certainly machine-generated
  * (hashed utility class, serialized state) and unsuited to our goals.
@@ -257,8 +233,9 @@ function isStableClass(cn: string): boolean {
 // survives. But an element often has several "stable" classes (a WordPress block
 // carries `entry-content` alongside `wp-block-post-content`, `has-global-padding`,
 // `is-layout-constrained`, `alignfull`, …). Picking the *first in DOM order* is
-// luck. These tiers let us pick the best and, later, decide which redundant
-// ancestor classes to shed. Two axes matter and they differ here:
+// luck. These tiers let us pick the best, and slot the chosen class into the
+// identity rank that drives the ancestor ratchet (see RANK_* and
+// semanticSelector). Two axes matter and they differ here:
 //   - stability  — survives a redesign
 //   - identity   — describes *this element's* role, and narrows the match set
 // A hand-authored component/content name scores high on both; a framework class
@@ -486,16 +463,43 @@ function findStableDescendantId(el: Element): string | null {
   for (let head = 0; head < queue.length; head++) {
     const node = queue[head];
     if (++scanned > 200) break;
-    if (node.id && isStrongId(node.id)) return node.id;
+    if (node.id && isStableId(node.id)) return node.id;
     for (let i = 0; i < node.children.length; i++) queue.push(node.children[i]);
   }
   return null;
 }
 
+// --- Identity ranks (lower = better) ---
+//
+// Every identity segment an element can carry has a rank. semanticSelector uses
+// it as a monotone ratchet: climbing the ancestor chain, a segment earns a place
+// only if it is *strictly better* (lower rank) than everything already kept, so
+// same-or-worse identity (a stack of sibling wrapper classes, a second utility
+// class) is skipped as pure length. A stable own id is simply the top rank — the
+// old "ids are special, stop the walk" behaviour falls out of it being rank 0,
+// which nothing can beat. The class tiers map into the middle of the order:
+// tier A = RANK_CLASS_A, tier B/C follow in the gaps left for aria-label / role.
+const RANK_ID = 0; // stable own id (#id / [id="…"])
+const RANK_URL = 1; // href/src
+const RANK_NAME = 2; // form-control name (backend submission key)
+const RANK_CLASS_A = 3; // semantic / component class
+const RANK_ARIA = 4; // aria-label (explicit accessible name)
+const RANK_CLASS_B = 5; // framework-namespaced class
+const RANK_ROLE = 6; // landmark / widget role
+const RANK_CLASS_C = 7; // utility / atomic class
+const RANK_CLASS_PARTIAL = 8; // CSS-Modules stem via [class*="…"]
+const RANK_REL = 9; // rel
+const RANK_HAS_ID = 10; // a stable id within the subtree (:has(#id))
+const RANK_SIBLING_ID = 11; // a stable id on the preceding sibling (prev#id + tag)
+
+/** Map a class tier (A/B/C = 0/1/2) to its identity rank (aria=4, role=6 interleave). */
+function classRank(tier: number): number {
+  return [RANK_CLASS_A, RANK_CLASS_B, RANK_CLASS_C][tier];
+}
+
 /**
- * The non-id identity segment for one element, or null. This is everything in
- * the priority order BELOW a strong own id, so it doubles as the base identity
- * a weak-id element falls back on:
+ * The non-id identity segment for one element and its rank, or null. Everything
+ * below a stable own id, in quality order:
  *  - url (href/src)
  *  - a form control's `name` (the backend submission key — more durable than
  *    styling classes, which redesigns rewrite)
@@ -505,31 +509,27 @@ function findStableDescendantId(el: Element): string | null {
  *    accessible name / landmark role; a CSS-Modules stem matched by substring
  *    is a loose last resort below every full class)
  *  - a stable id within its subtree (`tag:has(#id)`) — the id moves *with* the
- *    element, so it's the more robust of the two id-anchored rescues
+ *    element, so it's the more robust of the two id-anchored fallbacks
  *  - a stable id on its immediate preceding sibling (`prev#id + tag`) — e.g. a
  *    heading pinning the paragraph after it (`h1#intro + p`). The anchor is a
  *    *separate* adjacent element, so it's more fragile (an inserted node between
- *    them breaks `+`); hence it sits last. But there's no "which id?" ambiguity:
- *    there is exactly one immediate preceding sibling.
+ *    them breaks `+`); hence it sits last.
  */
-function nonIdSegment(
-  el: Element,
-): { seg: string; stop?: boolean; stopId?: string; classTier?: number } | null {
+function nonIdSegment(el: Element): { seg: string; rank: number } | null {
   const tag = el.tagName.toLowerCase();
 
   const url = urlSegment(el);
-  if (url) return { seg: url };
+  if (url) return { seg: url, rank: RANK_URL };
 
   const nameSeg = nameSegment(el);
-  if (nameSeg) return { seg: nameSeg };
+  if (nameSeg) return { seg: nameSeg, rank: RANK_NAME };
 
   // Class and semantic attributes interleave by quality (see comment above):
   //   tier-A class > aria-label > tier-B class > role > tier-C class >
   //   [class*=stem] > rel.
   // Pick the element's best-quality stable class once (and, separately, the
   // richest CSS-Modules stem for the last-resort substring match), then walk the
-  // interleaved ladder. `classTier` is reported so the path builder can later
-  // shed a *redundant* low-quality class ancestor.
+  // interleaved ladder.
   let bestClass: { cn: string; tier: number } | null = null;
   let bestStem: string | null = null;
   if (el.classList) {
@@ -556,18 +556,21 @@ function nonIdSegment(
     }
   }
   const classSeg = bestClass
-    ? { seg: tag + '.' + cssEsc(bestClass.cn, true), classTier: bestClass.tier }
+    ? {
+        seg: tag + '.' + cssEsc(bestClass.cn, true),
+        rank: classRank(bestClass.tier),
+      }
     : null;
 
   if (classSeg && bestClass!.tier === CLASS_TIER_A) return classSeg;
 
   const ariaSeg = attrSegment(el, ['aria-label']);
-  if (ariaSeg) return { seg: ariaSeg };
+  if (ariaSeg) return { seg: ariaSeg, rank: RANK_ARIA };
 
   if (classSeg && bestClass!.tier === CLASS_TIER_B) return classSeg;
 
   const roleSeg = attrSegment(el, ['role']);
-  if (roleSeg) return { seg: roleSeg };
+  if (roleSeg) return { seg: roleSeg, rank: RANK_ROLE };
 
   if (classSeg) return classSeg; // tier C — still better than rel / structural anchors
 
@@ -575,29 +578,26 @@ function nonIdSegment(
   // class whose per-build hash suffix we stripped (`[class*="Card-cardContent"]`).
   // A substring match can over-match a sibling stem, so it sits below every full
   // class and semantic attribute — used only when nothing better identifies the
-  // element — but still above `rel` and the structural id anchors.
+  // element — but still above `rel` and the structural id fallbacks.
   if (bestStem) {
-    return { seg: tag + '[class*="' + cssEsc(bestStem, false) + '"]' };
+    return {
+      seg: tag + '[class*="' + cssEsc(bestStem, false) + '"]',
+      rank: RANK_CLASS_PARTIAL,
+    };
   }
 
   const relSeg = attrSegment(el, ['rel']);
-  if (relSeg) return { seg: relSeg };
+  if (relSeg) return { seg: relSeg, rank: RANK_REL };
 
   const descId = findStableDescendantId(el);
-  if (descId) return { seg: tag + ':has(' + idSelector(descId) + ')' };
+  if (descId)
+    return { seg: tag + ':has(' + idSelector(descId) + ')', rank: RANK_HAS_ID };
 
   const prev = el.previousElementSibling;
-  if (prev && prev.id && isStrongId(prev.id)) {
-    // The id sits directly on the matched sibling (`h1#intro`), so it's a
-    // globally-unique handle — the `+ tag` then pins exactly one element.
-    // Already unique: stop, like own-id. (Unlike `:has(#id)` above, where the
-    // id is a descendant and several nested ancestors could match it.) `stopId`
-    // exposes that id so the duplicate-id rescue can climb past it if the same
-    // id turns out to be repeated in malformed markup.
+  if (prev && prev.id && isStableId(prev.id)) {
     return {
       seg: prev.tagName.toLowerCase() + idSelector(prev.id) + ' + ' + tag,
-      stop: true,
-      stopId: prev.id,
+      rank: RANK_SIBLING_ID,
     };
   }
 
@@ -605,61 +605,21 @@ function nonIdSegment(
 }
 
 /**
- * The identity segment for one element, or null if it carries no identity.
+ * The identity segment for one element and its rank, or null if it carries no
+ * identity. A stable own id is the top rank (RANK_ID); otherwise defer to
+ * `nonIdSegment` (url > name > class/aria/role/rel interleaved > `:has(#id)` >
+ * `prev#id + tag`). A purely structural element returns null and is dropped.
  *
- * Priority: (1) a strong own id [stops the walk], then everything in
- * `nonIdSegment` (url > name > {class/aria-label/role/rel interleaved by
- * quality} > `:has(#id)` > `prev#id + tag`). A purely structural element (none
- * of these) returns null and is dropped from the path.
- *
- * A *weak*, CMS-enumerated id (`block-12`, see isWeakId) is NOT a unique handle,
- * so it never replaces the element's real identity and never stops the walk.
- * Instead `seg` carries the element's non-id identity (or null) and `weakSeg`
- * carries that same identity *augmented* with the weak id (`div.block#block-12`,
- * or `div#block-12` when there's nothing else). semanticSelector uses `weakSeg`
- * only when the weak-id-free selector turns out ambiguous.
+ * No weak/strong id distinction: every stable id is treated as one strong rank.
+ * A CMS-enumerated id (`block-12`) that renumbers when the page is re-edited is
+ * accepted at face value — the residual ambiguity when it moves is the caller's
+ * match-index/geometry job, same as any other collapsed identity.
  */
-function semanticSegment(el: Element): {
-  seg: string | null;
-  stop?: boolean;
-  stopId?: string;
-  weakSeg?: string;
-  classTier?: number;
-} | null {
-  const tag = el.tagName.toLowerCase();
-
-  if (el.id && isStrongId(el.id)) {
-    return { seg: tag + idSelector(el.id), stop: true, stopId: el.id };
+function semanticSegment(el: Element): { seg: string; rank: number } | null {
+  if (el.id && isStableId(el.id)) {
+    return { seg: el.tagName.toLowerCase() + idSelector(el.id), rank: RANK_ID };
   }
-
-  const rest = nonIdSegment(el);
-
-  if (el.id && isStableId(el.id) && isWeakId(el.id)) {
-    return {
-      seg: rest ? rest.seg : null,
-      stop: rest?.stop,
-      stopId: rest?.stopId,
-      weakSeg: (rest ? rest.seg : tag) + idSelector(el.id),
-      classTier: rest?.classTier,
-    };
-  }
-
-  return rest;
-}
-
-/**
- * Does this id resolve to more than one element in root? A strong id is
- * normally treated as a unique handle that stops the ancestor walk, but
- * malformed pages in the wild do repeat an id (e.g. two nested
- * `#content-wrapper`). When that happens we must NOT stop on it, or the
- * selector silently collapses onto several elements.
- */
-function ambiguousId(id: string, root: Element | ShadowRoot): boolean {
-  try {
-    return root.querySelectorAll(idSelector(id)).length > 1;
-  } catch {
-    return false;
-  }
+  return nonIdSegment(el);
 }
 
 /**
@@ -674,170 +634,40 @@ function ambiguousId(id: string, root: Element | ShadowRoot): boolean {
  * so the remainder is always still a valid selector; ancestors that are a bare
  * tag are never produced (structural ancestors are dropped from the path
  * entirely), so there's nothing to accidentally strip to empty. For a
- * `prev#id + tag` sibling anchor this drops only the anchor's (redundant, since
- * the id is unique) tag, keeping the trailing element tag the combinator needs.
+ * `prev#id + tag` sibling anchor this drops only the anchor's (redundant) tag,
+ * keeping the trailing element tag the combinator needs.
  */
 function stripLeadingTag(seg: string): string {
   return seg.replace(/^[a-z][a-z0-9-]*(?=[.#[:])/i, '');
 }
 
-/** One collected path segment plus the metadata the pruner needs. */
-interface PathSeg {
-  text: string;
-  /** A redundant-if-removable, low-quality (tier B/C) class ancestor. */
-  droppable: boolean;
-  /** Drop order among droppables — worst (tier C) tried first. */
-  tier: number;
-}
-
 /**
- * Shed redundant low-quality class ancestors from a collected path.
+ * Build a *stable* CSS selector for an element: the identity-bearing parts of
+ * its ancestor path, joined by descendant combinators. A single walk from the
+ * clicked element to `root`, with NO queries against the wider page — the output
+ * is a pure function of the element and its ancestors' intrinsic attributes, so
+ * the same subtree always yields the same selector regardless of what else is on
+ * the page.
  *
- * A segment "earns its place" iff removing it *increases* the match set. Because
- * removing any segment only ever loosens the selector (the target always stays
- * in the match set), an unchanged count means that segment added no selectivity
- * — it is redundant. A redundant segment is worth dropping ONLY when it is also
- * low quality (a framework/utility class, tier B/C): it is then pure cost —
- * extra length AND an extra intermediate anchor that breaks if that wrapper is
- * restructured away between page versions. A redundant *semantic* (tier-A)
- * class is kept: it scopes the element meaningfully and guards against unrelated
- * elements matching on a future version of the page. Strong-id anchors and the
- * terminal are never candidates (a redundant strong-id anchor is deliberately
- * kept — one segment, huge selectivity, cheap cross-time insurance).
+ * The walk is a monotone identity ratchet with one container anchor. The
+ * terminal (clicked) element always contributes a segment — its identity, or a
+ * bare tag so the selector still resolves to it. Then the *nearest*
+ * identity-bearing ancestor is always kept, even if it ranks below the terminal:
+ * it answers "which one" — which container the target sits in (the `.wp-block-group`
+ * around one of several `a[href="/buy"]`) — context the terminal's own identity
+ * can't carry. Above that anchor, each further ancestor earns a segment only if
+ * *strictly better* (lower RANK_*) than the best already kept, so climbing can
+ * only tighten identity, never repeat or weaken it. A stack of same-tier wrapper
+ * classes (`gallery__carousel` in `gallery__wrapper` in `gallery`) therefore
+ * collapses to a single representative, and a stable id ends the walk.
  *
- * Segments arrive terminal-first; the worst tier is tried first so that if two
- * low-quality classes are interdependent the higher-quality one survives.
- */
-function pruneRedundant(
-  segs: PathSeg[],
-  root: Element | ShadowRoot,
-): PathSeg[] {
-  const candidates = segs.filter((s) => s.droppable);
-  if (candidates.length === 0) return segs;
-  candidates.sort((a, b) => b.tier - a.tier); // tier C before tier B
-
-  const selectorOf = (list: PathSeg[]) =>
-    list
-      .map((s) => s.text)
-      .reverse()
-      .join(' ');
-  const countOf = (sel: string): number => {
-    try {
-      return root.querySelectorAll(sel).length;
-    } catch {
-      return -1; // unresolvable in this engine — treat as "can't safely drop"
-    }
-  };
-
-  let current = segs;
-  const count = countOf(selectorOf(current));
-  if (count < 0) return segs; // base selector not resolvable — leave it alone
-
-  for (const cand of candidates) {
-    const trial = current.filter((s) => s !== cand);
-    if (countOf(selectorOf(trial)) === count) current = trial; // redundant → drop
-  }
-  return current;
-}
-
-/**
- * Walk an element's ancestor path and join its identity segments with
- * descendant combinators. Purely structural ancestors (no id/url/class/`:has`
- * anchor) are omitted — we never emit positional `nth-of-type` ordinals.
+ * Only the terminal keeps its tag qualifier; every ancestor segment is
+ * tag-stripped (see stripLeadingTag), since the tag carries no identity there.
  *
- * Only the terminal (clicked) element keeps its tag qualifier; every ancestor
- * segment is tag-stripped (see stripLeadingTag) to keep the selector terse,
- * since the tag adds no identity there. The collected path is then run through
- * pruneRedundant to shed redundant low-quality class ancestors.
- *
- * When `includeWeak` is false a weak (CMS-enumerated) id is treated as no
- * identity at all: dropped if it's an interior ancestor, replaced by a bare tag
- * if it's the terminal element. When true the weak id is emitted as a segment.
- * Either way a weak id never stops the walk (only a strong own-id / sibling-id
- * anchor does).
- *
- * When `dedupeIds` is set, an id-anchored stop (own id, or a preceding-sibling
- * `prev#id + tag` anchor) is honoured only if that id is actually unique in
- * root; a duplicated anchor id keeps its segment but does NOT stop the walk, so
- * an ancestor segment can single the element out.
- */
-function buildSelectorPath(
-  el: Element,
-  root: Element | ShadowRoot,
-  includeWeak: boolean,
-  dedupeIds: boolean,
-): string {
-  const segments: PathSeg[] = [];
-  let current: Element | null = el;
-  let isTerminal = true;
-
-  while (current && current !== root && current !== document.documentElement) {
-    const seg = semanticSegment(current);
-    const chosen = seg
-      ? includeWeak && seg.weakSeg
-        ? seg.weakSeg
-        : seg.seg
-      : null;
-    if (chosen) {
-      const usedWeak = !!(includeWeak && seg && seg.weakSeg);
-      const isAnchor = !!(seg && seg.stop);
-      // Only a *class* segment carries a tier; url/name/attr/:has/anchor/bare-tag
-      // default to tier A and are never redundancy-droppable. A weakSeg is
-      // id-bearing (present only because it disambiguates) → also never dropped.
-      const tier = seg && seg.classTier != null ? seg.classTier : CLASS_TIER_A;
-      const droppable =
-        !isTerminal && !isAnchor && !usedWeak && tier >= CLASS_TIER_B;
-      // The clicked element keeps its tag (a cheap identity constraint); every
-      // ancestor is tag-stripped — the tag carries no identity there.
-      segments.push({
-        text: isTerminal ? chosen : stripLeadingTag(chosen),
-        droppable,
-        tier,
-      });
-      if (isAnchor) {
-        // A stop assumes its anchoring id (`seg.stopId`) is a unique handle —
-        // either the element's own id or a strong id on its immediate preceding
-        // sibling (`prev#id + tag`). When dedupeIds is set and that id is
-        // duplicated in root (malformed markup), keep the segment but climb on
-        // so an ancestor disambiguates.
-        const ambiguousStop =
-          dedupeIds && !!seg!.stopId && ambiguousId(seg!.stopId!, root);
-        if (!ambiguousStop) break;
-      }
-    } else if (isTerminal) {
-      // The clicked element itself has no usable identity — keep a bare tag so
-      // the selector still resolves to it (refined by match index + geometry).
-      segments.push({
-        text: current.tagName.toLowerCase(),
-        droppable: false,
-        tier: CLASS_TIER_A,
-      });
-    }
-    current = current.parentElement;
-    isTerminal = false;
-  }
-
-  return pruneRedundant(segments, root)
-    .map((s) => s.text)
-    .reverse()
-    .join(' ');
-}
-
-/**
- * Build a *stable* CSS selector for an element: the concatenation of the
- * intrinsic, identity-bearing parts of its ancestor path, joined by descendant
- * combinators.
- *
- * The result is NOT guaranteed to be unique: several "same-identity" elements
- * (e.g. a grid of `a[href="/buy"]`) collapse to the same selector by design.
- * The caller resolves that residual ambiguity with a global `selectorMatchIndex`
- * plus geometry, rather than baking brittle position into the string.
- *
- * Weak (CMS-enumerated) ids like `block-12` get renumbered when a page is
- * re-edited, so we prefer the weak-id-free selector and only fold the weak ids
- * back in when that selector is otherwise ambiguous against `root` (where they
- * actually help narrow it down). The terminal element always contributes a
- * segment (its identity, or a bare tag) so the selector resolves to it.
+ * The result is NOT guaranteed to be unique: several same-identity elements in
+ * the same container (a grid of `.card a[href="/buy"]`), or two elements sharing
+ * a duplicated id, collapse to the same selector by design. The caller resolves
+ * residual ambiguity with a match index plus geometry, never a positional ordinal.
  */
 export function semanticSelector(
   el: Element,
@@ -846,38 +676,40 @@ export function semanticSelector(
   if (el === root) return el.tagName.toLowerCase();
   if (!el.tagName) return ''; // e.g. document node
 
-  const base = buildSelectorPath(el, root, false, false);
-  const strong = buildSelectorPath(el, root, true, false);
+  const parts: string[] = [];
+  let bestRank = Infinity;
+  let anchored = false; // kept the nearest identity ancestor yet?
+  let current: Element | null = el;
+  let isTerminal = true;
 
-  // Prefer the weak-id-free selector; only lean on the renumber-prone weak ids
-  // when the page genuinely needs them to single the element out.
-  let chosen = base;
-  if (strong !== base) {
-    try {
-      if (root.querySelectorAll(base).length > 1) chosen = strong;
-    } catch {
-      // base not resolvable in this engine (e.g. a `:has()` gap) — use strong.
-      chosen = strong;
+  while (current && current !== root && current !== document.documentElement) {
+    const seg = semanticSegment(current);
+    let pushedRank: number | null = null;
+    if (isTerminal) {
+      parts.push(seg ? seg.seg : current.tagName.toLowerCase());
+      bestRank = seg ? seg.rank : Infinity;
+      pushedRank = seg ? seg.rank : null;
+    } else if (seg && (!anchored || seg.rank < bestRank)) {
+      // The nearest identity ancestor is kept unconditionally (the container
+      // anchor); every one above it must strictly improve on the best so far.
+      parts.push(stripLeadingTag(seg.seg));
+      anchored = true;
+      if (seg.rank < bestRank) bestRank = seg.rank;
+      pushedRank = seg.rank;
     }
+    // Stop once we've just anchored on a stable id — an own `#id`, or a
+    // `:has(#id)` / `prev#id + tag` fallback that already embeds one. Climbing
+    // further would at best re-reference that id (a redundant `:has(#id) #id`)
+    // and can't strengthen an id anchor.
+    if (
+      pushedRank === RANK_ID ||
+      pushedRank === RANK_HAS_ID ||
+      pushedRank === RANK_SIBLING_ID
+    )
+      break;
+    current = current.parentElement;
+    isTerminal = false;
   }
 
-  // Duplicate-id rescue: a strong own id is treated as a unique handle that
-  // stops the ancestor walk, but malformed pages in the wild ship the same id
-  // twice (e.g. nested `#content-wrapper`). If the chosen selector still
-  // matches several elements, re-walk *past* any duplicated own-id (keeping the
-  // id segment, but climbing on for a disambiguating ancestor) and adopt the
-  // result only when it singles the element out more tightly.
-  try {
-    const n = root.querySelectorAll(chosen).length;
-    if (n > 1) {
-      const deduped = buildSelectorPath(el, root, chosen === strong, true);
-      if (deduped !== chosen && root.querySelectorAll(deduped).length < n) {
-        chosen = deduped;
-      }
-    }
-  } catch {
-    // chosen not resolvable in this engine — leave it as-is.
-  }
-
-  return chosen;
+  return parts.reverse().join(' ');
 }

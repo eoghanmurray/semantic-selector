@@ -249,11 +249,11 @@ describe('semanticSelector', () => {
       expect(sel(target())).toContain('#material-panel');
     });
 
-    it('climbs past a DUPLICATED own id to anchor on the duplicate ancestor', () => {
-      // Real-world malformed markup: the same id appears twice, inner nested
-      // under outer. The own id no longer uniquely stops the walk, so the
-      // selector gains the ancestor #content-wrapper and resolves to the inner
-      // one only — instead of '#content-wrapper' + selectorMatchIndex 2-of-2.
+    it('accepts a duplicated own id, leaving ambiguity to the match index', () => {
+      // Malformed markup repeats an id. We no longer query the page to climb
+      // past it (that made the selector depend on ambient page state); the own
+      // id is the top rank and stops the walk. The duplicate collapses to one
+      // selector, resolved out-of-band by matchIndex/geometry.
       setHTML(`
         <div id="content-wrapper" class="js-content-wrapper">
           <div class="row">
@@ -262,12 +262,9 @@ describe('semanticSelector', () => {
         </div>
       `);
       expect(matchCount('#content-wrapper')).toBe(2);
-      // Ancestors are tag-stripped; only the terminal (inner) keeps its tag. The
-      // interior `.row` (a Bootstrap tier-C utility) is redundant once both id
-      // anchors are present, so it's pruned — the two ids already single it out.
-      expect(expectResolves(target())).toBe(
-        '#content-wrapper div#content-wrapper',
-      );
+      const s = sel(target());
+      expect(s).toBe('div#content-wrapper');
+      expect(matchCount(s)).toBe(2);
     });
 
     it('leaves genuinely indistinguishable duplicate ids to the match index', () => {
@@ -285,50 +282,38 @@ describe('semanticSelector', () => {
   });
 
   // -------------------------------------------------------------------
-  // Weak (CMS-enumerated) IDs — block-12 style: a hint, not a handle.
-  // Included only when the weak-id-free selector is otherwise ambiguous;
-  // they never stop the upward walk.
+  // CMS-enumerated IDs (block-12 style). There is no weak/strong split: any
+  // stable id is one top-rank identity that stops the walk. If it renumbers
+  // between page versions the resulting mismatch is the caller's
+  // matchIndex/geometry problem, like any other collapsed identity.
   // -------------------------------------------------------------------
 
-  describe('weak IDs (block-12 style)', () => {
-    it('drops a weak id when the element is already unique without it', () => {
+  describe('enumerated IDs (block-12 style)', () => {
+    it('uses an enumerated id directly, like any stable id', () => {
       setHTML(
         '<section><div id="block-12" data-target="target">x</div></section>',
       );
-      const s = sel(target());
-      expect(s).toBe('div');
-      expect(s).not.toContain('block-12');
-      expect(matchCount(s)).toBe(1);
+      expect(sel(target())).toBe('div#block-12');
     });
 
-    it("prefers the element's stable class over its weak id", () => {
+    it('prefers an id over a class on the same element (id is the top rank)', () => {
       setHTML('<div class="hero" id="block-12" data-target="target">x</div>');
-      const s = sel(target());
-      expect(s).toBe('div.hero');
-      expect(s).not.toContain('block-12');
+      expect(sel(target())).toBe('div#block-12');
     });
 
-    it('folds the weak id in (with the class) to disambiguate siblings', () => {
-      setHTML(`
-        <div class="block" id="block-7">a</div>
-        <div class="block" id="block-12" data-target="target">b</div>
-      `);
-      const s = sel(target());
-      expect(s).toBe('div.block#block-12');
-      expect(matchCount(s)).toBe(1);
+    it('uses an id with digits earlier in the stem (s3_1_offset_2)', () => {
+      setHTML(
+        '<section><div id="s3_1_offset_2" data-target="target">x</div></section>',
+      );
+      expect(sel(target())).toBe('div#s3_1_offset_2');
     });
 
-    it('falls back to the bare weak id when nothing else disambiguates', () => {
-      setHTML(`
-        <div id="block-7">a</div>
-        <div id="block-12" data-target="target">b</div>
-      `);
-      const s = sel(target());
-      expect(s).toBe('div#block-12');
-      expect(matchCount(s)).toBe(1);
+    it('treats a separator-less trailing-number id (section2) the same', () => {
+      setHTML('<div id="section2" data-target="target">x</div>');
+      expect(sel(target())).toBe('div#section2');
     });
 
-    it('does not stop the walk on a weak id — keeps climbing for context', () => {
+    it('stops on the NEAREST id ancestor when several ancestors have ids', () => {
       setHTML(`
         <div id="main">
           <div id="block-12">
@@ -336,39 +321,9 @@ describe('semanticSelector', () => {
           </div>
         </div>
       `);
-      // The strong #main ancestor still anchors the selector, proving the walk
-      // climbed past the interior weak #block-12 (which is itself omitted as
-      // the href already resolves uniquely).
-      const s = sel(target());
-      expect(s).toBe('#main a[href="/buy"]');
-      expect(s).not.toContain('block-12');
-    });
-
-    it('treats a separator-less trailing-number id (heading2) as strong', () => {
-      setHTML('<div id="section2" data-target="target">x</div>');
-      expect(sel(target())).toBe('div#section2');
-    });
-
-    it('treats an enumerated id with digits earlier in the stem as weak', () => {
-      // `s3_1_offset_2` (a WordPress SVG gradient stop): the `3` in the stem must
-      // not hide the trailing `_2` enumeration. A strong id would stop the walk
-      // and emit `#s3_1_offset_2`; a weak one is dropped when already unique.
-      setHTML(
-        '<section><div id="s3_1_offset_2" data-target="target">x</div></section>',
-      );
-      const s = sel(target());
-      expect(s).toBe('div');
-      expect(s).not.toContain('s3_1_offset_2');
-    });
-
-    it('folds an enumerated (stem-digit) id in to disambiguate siblings', () => {
-      setHTML(`
-        <div id="s3_1_offset_1">a</div>
-        <div id="s3_1_offset_2" data-target="target">b</div>
-      `);
-      const s = sel(target());
-      expect(s).toBe('div#s3_1_offset_2');
-      expect(matchCount(s)).toBe(1);
+      // Terminal a[href] is a url (rank 1); climbing, the nearest id ancestor
+      // (#block-12) is the top rank and stops the walk — we never reach #main.
+      expect(sel(target())).toBe('#block-12 a[href="/buy"]');
     });
   });
 
@@ -759,8 +714,10 @@ describe('semanticSelector', () => {
         </div>
       `);
       const s = sel(target());
-      expect(s).toBe('.product-grid .product-card button');
-      // Three identical cards — ambiguity resolved by matchIndex, not the string.
+      // `.product-card` (tier A) is the terminal's best ancestor identity; the
+      // outer `.product-grid` is the same tier, so the ratchet skips it as no
+      // improvement. Three identical cards — ambiguity resolved by matchIndex.
+      expect(s).toBe('.product-card button');
       expect(matchCount(s)).toBe(3);
     });
 
@@ -792,6 +749,8 @@ describe('semanticSelector', () => {
           </div>
         </footer>
       `);
+      // The href is the anchor's identity; the nearest identity ancestor
+      // (`.footer-col`) is kept as the container anchor — which column of links.
       expect(expectResolves(target())).toBe('.footer-col a[href="/careers"]');
     });
 
@@ -819,24 +778,24 @@ describe('semanticSelector', () => {
         </section>
       `);
       const s = expectResolves(target());
-      // href wins over the cta-button class on the anchor; the hero section's
-      // stable class is still recorded as an identity-rich (tag-stripped) ancestor.
+      // href wins over the anchor's own cta-button class; the nearest identity
+      // ancestor `.hero` is still kept as the container anchor.
       expect(s).toBe('.hero a[href="/signup"]');
     });
   });
 
   // -------------------------------------------------------------------
-  // Ancestor path pruning — shed redundant low-quality class ancestors,
-  // keep semantic context and strong-id anchors.
+  // Ancestor ratchet — climbing keeps only strictly-higher-quality identity,
+  // so lower/equal-tier wrappers are skipped and an id anchor ends the walk.
   // -------------------------------------------------------------------
 
-  describe('ancestor path pruning', () => {
-    it('drops a redundant framework-class ancestor but keeps the strong-id anchor', () => {
+  describe('ancestor ratchet', () => {
+    it('keeps the nearest framework ancestor as anchor, then stops at the id', () => {
       // Minimal extract of a WordPress page (abogado.html): a semantic-classed
       // content div inside a framework wrapper (.wp-block-group), under the
-      // theme's skip-link landmark id. `.entry-content` alone is already unique,
-      // so the redundant framework wrapper (tier B) is pruned — but the strong-id
-      // landmark is kept (cheap, high-value cross-time anchor).
+      // theme's skip-link landmark id. The nearest identity ancestor
+      // (.wp-block-group) is kept as the container anchor; higher tier-A wrappers
+      // would need to out-rank it, and the id ancestor is the top rank and stops.
       setHTML(`
         <main id="wp--skip-link--target">
           <div class="wp-block-group">
@@ -847,7 +806,7 @@ describe('semanticSelector', () => {
         </main>
       `);
       expect(expectResolves(target())).toBe(
-        '#wp--skip-link--target div.entry-content',
+        '#wp--skip-link--target .wp-block-group div.entry-content',
       );
     });
 
@@ -866,10 +825,12 @@ describe('semanticSelector', () => {
       expect(matchCount(s)).toBe(1);
     });
 
-    it('keeps a low-quality ancestor class when it actually disambiguates', () => {
-      // The framework-classed wrapper is tier B (normally shed as redundant), but
-      // here removing it would grow the match set from 1 to 2 (two identical
-      // links) — so it earns its place and is kept.
+    it('keeps the container anchor, distinguishing identical links intrinsically', () => {
+      // Two identical `/buy` links in differently-classed wrappers. The nearest
+      // identity ancestor is always kept as the container anchor, so `.wp-block-group`
+      // vs `.other` tells them apart — WITHOUT querying the page (unlike the old
+      // pruner). Same-container siblings would still collapse; different
+      // containers get different selectors, which is the meaningful distinction.
       setHTML(`
         <div class="wp-block-group">
           <a href="/buy" data-target="target">Buy</a>
@@ -1086,13 +1047,13 @@ describe('semanticSelector', () => {
       expect(expectResolves(target())).toBe('a[href="/two"]');
     });
 
-    it('disambiguates identical hrefs in different structural positions', () => {
+    it('distinguishes identical hrefs by their container anchor', () => {
       setHTML(`
         <header><a href="/buy">Buy</a></header>
         <main><div class="cta"><a href="/buy" data-target="target">Buy</a></div></main>
       `);
-      // The href is kept and a stable-class ancestor (.cta) disambiguates;
-      // the structural <main> is dropped, descendant combinator bridges it.
+      // The nearest identity ancestor `.cta` is kept as the container anchor; the
+      // structural <main> is dropped and the descendant combinator bridges it.
       expect(expectResolves(target())).toBe('.cta a[href="/buy"]');
     });
 
@@ -1136,11 +1097,11 @@ describe('semanticSelector', () => {
       expect(expectResolves(target())).toBe('h1#just-released + p');
     });
 
-    it('climbs past a DUPLICATED preceding-sibling id to disambiguate', () => {
-      // Malformed markup repeats #lbl, so `span#lbl + button` is a stop that
-      // actually matches two buttons. The duplicate-id rescue must treat the
-      // sibling-anchor id like a duplicated own-id: keep the segment but climb
-      // to the distinguishing ancestor (div.promo) rather than stopping.
+    it('accepts a duplicated preceding-sibling id, leaving it to the match index', () => {
+      // Malformed markup repeats #lbl, so `span#lbl + button` matches two
+      // buttons. A sibling-id anchor embeds a stable id and stops the walk like
+      // an own id — we no longer query the page to climb to a distinguishing
+      // ancestor. The duplicate collapses; matchIndex/geometry resolve it.
       setHTML(`
         <div class="promo">
           <span id="lbl">Label</span>
@@ -1152,10 +1113,9 @@ describe('semanticSelector', () => {
         </div>
       `);
       expect(matchCount('#lbl')).toBe(2);
-      expect(matchCount('span#lbl + button')).toBe(2);
-      // Ancestor .promo is tag-stripped; the terminal sibling-anchor keeps its
-      // tags (span#lbl anchors the trailing button the combinator needs).
-      expect(expectResolves(target())).toBe('.promo span#lbl + button');
+      const s = sel(target());
+      expect(s).toBe('span#lbl + button');
+      expect(matchCount(s)).toBe(2);
     });
 
     it('prefers a descendant :has anchor over a preceding-sibling +', () => {
