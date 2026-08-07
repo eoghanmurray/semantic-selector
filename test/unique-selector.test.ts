@@ -166,6 +166,52 @@ describe('semanticSelector', () => {
       expect(sel(target())).not.toContain('a1b2c3d4e5f6a7b8');
     });
 
+    it('rejects a high-entropy ULID/nanoid token id', () => {
+      // A base32 token like `016JB91MZ80000000000036PNV` is regenerated per
+      // render/row-insert; the interleaved letter/digit runs give it away even
+      // though it is not hex (no a–f). Falls back to the class instead.
+      setHTML(
+        '<div id="rich-text-016JB91MZ80000000000036PNV" class="prose"><span data-target="target">Text</span></div>',
+      );
+      const s = sel(target());
+      expect(s).not.toContain('016JB91MZ80000000000036PNV');
+      expect(s).toContain('.prose');
+    });
+
+    it('keeps a word-plus-number id (not a random token)', () => {
+      // `heading2` is a word with a trailing number — one letter run, one digit
+      // run — so it stays strong, unlike an interleaved random token.
+      setHTML(
+        '<div id="heading2"><span data-target="target">Text</span></div>',
+      );
+      expect(sel(target())).toContain('#heading2');
+    });
+
+    it('picks a semantic class over a real-world ULID form-block id', () => {
+      // Minimal, anonymised subtree from a Klaviyo signup form seen in the wild:
+      // every block gets an `id="rich-text-<ULID>"` that Klaviyo regenerates, so
+      // pinning on it would never reoccur. The same element carries a durable
+      // `klaviyo-form-richtext` class, which we use instead.
+      setHTML(`
+        <div role="dialog" aria-label="Signup Form" class="needsclick kl-private-reset-css-Xuajs1">
+          <form novalidate class="needsclick klaviyo-form kl-private-reset-css-Xuajs1">
+            <div data-testid="form-row" class="needsclick kl-private-reset-css-Xuajs1">
+              <div data-testid="form-component" class="needsclick go2454621715 kl-private-reset-css-Xuajs1">
+                <div id="rich-text-016JB91TTR0000000000362ECS" class="kl-private-reset-css-Xuajs1 go3176171171 klaviyo-form-richtext" data-target="target">
+                  <p>Placeholder heading</p>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+      `);
+      const s = expectResolves(target());
+      expect(s).not.toContain('rich-text-016JB91TTR0000000000362ECS');
+      // The go*/hashed reset classes are rejected too; the terminal identity is
+      // the authored component class.
+      expect(s.endsWith('div.klaviyo-form-richtext')).toBe(true);
+    });
+
     it('rejects React useId / Radix colon-wrapped IDs', () => {
       setHTML('<div id=":r0:"><span data-target="target">Text</span></div>');
       expect(sel(target())).not.toContain(':r0:');
@@ -364,6 +410,42 @@ describe('semanticSelector', () => {
         </div>
       `);
       expect(sel(target())).not.toContain('css-1a2b3c');
+    });
+
+    it('rejects a CSS-Modules hashed class, preferring a plain class', () => {
+      // `Card-cardContent-Zu3Ce` carries a per-build hash suffix that changes
+      // every deploy; a genuine class on the element wins outright.
+      setHTML(`
+        <div>
+          <div class="Card-cardContent-Zu3Ce article-body" data-target="target">x</div>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).toBe('div.article-body');
+      expect(s).not.toContain('Zu3Ce');
+    });
+
+    it('matches a CSS-Modules stem by substring as a last resort', () => {
+      // No other identity: fall back to `[class*="stem"]` on the authored stem,
+      // which survives the hash suffix changing between deploys.
+      setHTML(`
+        <div>
+          <div class="routing-routeTransitionContainer-CNBnY" data-target="target">x</div>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).toBe('div[class*="routing-routeTransitionContainer"]');
+      expect(s).not.toContain('CNBnY');
+      expect(matchCount(s)).toBe(1);
+    });
+
+    it('does not mistake a plain camelCase/BEM class for a hashed one', () => {
+      // `nav-navBar` has no random suffix (navBar is a real camelCase word, with
+      // vowels); it is used whole, never stripped to a `[class*=]` stem.
+      setHTML('<nav class="nav-navBar" data-target="target">x</nav>');
+      const s = sel(target());
+      expect(s).toBe('nav.nav-navBar');
+      expect(s).not.toContain('class*');
     });
 
     it('rejects state classes like "active" or "selected"', () => {

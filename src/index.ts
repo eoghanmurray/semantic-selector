@@ -44,6 +44,25 @@ function cssEsc(str: string, isIdent: boolean): string {
   return out;
 }
 
+/**
+ * Does the string contain a maximal alphanumeric run that looks like a random
+ * machine token (ULID, nanoid, base32/62 hash)? The tell is *interleaved*
+ * letter and digit runs: a hand-authored id is at most a word plus a number
+ * (`heading2`, `section3` → ≤2 runs), whereas a random token alternates many
+ * times (`016JB91MZ80000000000036PNV` → 6 runs). We require a long run with ≥4
+ * such runs so a word-plus-number id stays strong. A pure-digit run (DB id) and
+ * a pure-letter run (a real word) are never flagged — a random token mixes both.
+ */
+function hasRandomTokenRun(s: string): boolean {
+  for (const seg of s.split(/[^A-Za-z0-9]+/)) {
+    if (seg.length < 10) continue;
+    if (!/[A-Za-z]/.test(seg) || !/\d/.test(seg)) continue; // need both
+    const runs = seg.match(/[A-Za-z]+|\d+/g);
+    if (runs && runs.length >= 4) return true;
+  }
+  return false;
+}
+
 /** Reject framework-generated IDs (ember, yui, React useId, etc.) */
 function isStableId(id: string): boolean {
   if (/^ember\d+$/.test(id)) return false;
@@ -65,6 +84,7 @@ function isStableId(id: string): boolean {
   // nth-of-type structural fallback.
   const hexRun = id.match(/[0-9a-f]{8,}/i);
   if (hexRun && /[a-f]/i.test(hexRun[0])) return false;
+  if (hasRandomTokenRun(id)) return false;
   return true;
 }
 
@@ -99,6 +119,44 @@ function isStrongId(id: string): boolean {
  */
 const MAX_IDENT_LEN = 64;
 
+/**
+ * A short trailing segment that looks like a build-tool hash rather than a real
+ * word — the base62 token CSS-Modules / styled-system / webpack css-loader
+ * append to a scoped name (`…-Zu3Ce`, `…-CNBnY`). The tells are a mixed-case /
+ * interleaved digit+letter run, or vowelless irregular-case gibberish. Plain
+ * words — lowercase (`content`), Capitalized (`Wrapper`), camelCase (`navBar`),
+ * word+number (`col3`) — are NOT hashes, so their class survives intact.
+ */
+function looksLikeHash(s: string): boolean {
+  const mixedCase = /[a-z]/.test(s) && /[A-Z]/.test(s);
+  if (/\d/.test(s) && /[A-Za-z]/.test(s)) {
+    if (mixedCase) return true; // Zu3Ce
+    return s.match(/[A-Za-z]+|\d+/g)!.length >= 3; // a1b2c3 interleaved, not col3
+  }
+  if (/^[a-z]+$/.test(s)) return false; // lowercase word
+  if (/^[A-Z][a-z]*$/.test(s)) return false; // Capitalized word (Wrapper)
+  if (/[aeiou]/i.test(s)) return false; // vowels ⇒ likely a camelCase word
+  return true; // mixed-case & vowelless ⇒ hash (CNBnY)
+}
+
+/**
+ * If a class is a CSS-Modules / build-tool scoped name of the form
+ * `<stem>-<hash>` (`Card-cardContent-Zu3Ce`,
+ * `routing-routeTransitionContainer-CNBnY`), return its stable stem
+ * (`Card-cardContent`) — the per-build hash suffix changes every deploy, but the
+ * stem is authored and durable. Only the trailing hash-looking segment is
+ * stripped, so the stem keeps all its real words. Used two ways: `isStableClass`
+ * rejects the whole hashed class (never a `.class` anchor), and `nonIdSegment`
+ * folds the stem into a last-resort `[class*="stem"]` match.
+ */
+function moduleClassStem(cn: string): string | null {
+  const m = cn.match(/^(.+[A-Za-z0-9])[-_]([A-Za-z0-9]{4,8})$/);
+  if (!m) return null;
+  const [, stem, hash] = m;
+  if (stem.length < 3 || !looksLikeHash(hash)) return null;
+  return stem;
+}
+
 /** Reject framework-generated class names */
 function isStableClass(cn: string): boolean {
   if (cn.length > MAX_IDENT_LEN) return false; // generated / serialized
@@ -106,6 +164,7 @@ function isStableClass(cn: string): boolean {
     return false;
   if (/^css-/.test(cn)) return false; // emotion
   if (/^_[a-zA-Z0-9]{5,}$/.test(cn)) return false; // CSS modules hash
+  if (moduleClassStem(cn)) return false; // CSS-Modules scoped `stem-HASH`
   if (
     /active|hover|focus|selected|open|closed|visible|hidden|disabled/i.test(cn)
   )
@@ -279,12 +338,15 @@ function urlSegment(el: Element): string | null {
 // and therefore ranks ABOVE class. The remaining semantic attributes are NOT a
 // single block below class — they interleave with the class tiers by quality
 // (see nonIdSegment):
-//     tier-A class > aria-label > tier-B class > role > tier-C class > rel
+//     tier-A class > aria-label > tier-B class > role > tier-C class
+//       > [class*=stem] > rel
 // `aria-label` is an explicit accessible name (strong identity), so it out-ranks
 // a framework/utility class it describes better — but it sits below a
 // hand-authored semantic class because it is localized (differs across
 // translated copies of a logical page). `role` is a coarse but i18n-stable
-// landmark/widget token, above only utility classes. `rel` is weakest.
+// landmark/widget token, above only utility classes. Below every full class is
+// the stripped *stem* of a CSS-Modules scoped class matched by substring
+// (`[class*=stem]`), a loose last resort. `rel` is weakest.
 
 /** Tags where `name` is the HTML-standard control identity (form submission key). */
 const NAME_AS_CONTROL = new Set([
@@ -360,8 +422,10 @@ function findStableDescendantId(el: Element): string | null {
  *  - a form control's `name` (the backend submission key — more durable than
  *    styling classes, which redesigns rewrite)
  *  - stable class + semantic attribute, interleaved by quality:
- *    tier-A class > `aria-label` > tier-B class > `role` > tier-C class > `rel`
- *    (a low-quality class loses to an explicit accessible name / landmark role)
+ *    tier-A class > `aria-label` > tier-B class > `role` > tier-C class >
+ *    `[class*=stem]` > `rel` (a low-quality class loses to an explicit
+ *    accessible name / landmark role; a CSS-Modules stem matched by substring
+ *    is a loose last resort below every full class)
  *  - a stable id within its subtree (`tag:has(#id)`) — the id moves *with* the
  *    element, so it's the more robust of the two id-anchored rescues
  *  - a stable id on its immediate preceding sibling (`prev#id + tag`) — e.g. a
@@ -382,17 +446,35 @@ function nonIdSegment(
   if (nameSeg) return { seg: nameSeg };
 
   // Class and semantic attributes interleave by quality (see comment above):
-  //   tier-A class > aria-label > tier-B class > role > tier-C class > rel.
-  // Pick the element's best-quality stable class once, then walk the interleaved
-  // ladder. `classTier` is reported so the path builder can later shed a
-  // *redundant* low-quality class ancestor.
+  //   tier-A class > aria-label > tier-B class > role > tier-C class >
+  //   [class*=stem] > rel.
+  // Pick the element's best-quality stable class once (and, separately, the
+  // richest CSS-Modules stem for the last-resort substring match), then walk the
+  // interleaved ladder. `classTier` is reported so the path builder can later
+  // shed a *redundant* low-quality class ancestor.
   let bestClass: { cn: string; tier: number } | null = null;
+  let bestStem: string | null = null;
   if (el.classList) {
     for (const cn of Array.from(el.classList)) {
-      if (!isStableClass(cn)) continue;
-      const tier = classTier(cn);
-      if (!bestClass || tier < bestClass.tier) bestClass = { cn, tier };
-      if (tier === CLASS_TIER_A) break; // nothing beats tier A; keep the first one
+      if (isStableClass(cn)) {
+        const tier = classTier(cn);
+        if (!bestClass || tier < bestClass.tier) bestClass = { cn, tier };
+        if (tier === CLASS_TIER_A) break; // nothing beats tier A; keep the first one
+        continue;
+      }
+      // Not usable as a full `.class`, but a CSS-Modules scoped name still
+      // carries identity in its stem — remember the richest one for a
+      // last-resort `[class*="stem"]` match (see below). Only a *specific*
+      // multi-token stem qualifies (a hyphen/underscore or a camelCase hump):
+      // a bare single-word stem (`css` from an emotion `css-175oi2r`) is too
+      // generic for a substring match and would match half the page.
+      const stem = moduleClassStem(cn);
+      if (
+        stem &&
+        (/[-_]/.test(stem) || /[a-z][A-Z]/.test(stem)) &&
+        (!bestStem || stem.length > bestStem.length)
+      )
+        bestStem = stem;
     }
   }
   const classSeg = bestClass
@@ -410,6 +492,15 @@ function nonIdSegment(
   if (roleSeg) return { seg: roleSeg };
 
   if (classSeg) return classSeg; // tier C — still better than rel / structural anchors
+
+  // Last-resort class identity: match the stable *stem* of a CSS-Modules scoped
+  // class whose per-build hash suffix we stripped (`[class*="Card-cardContent"]`).
+  // A substring match can over-match a sibling stem, so it sits below every full
+  // class and semantic attribute — used only when nothing better identifies the
+  // element — but still above `rel` and the structural id anchors.
+  if (bestStem) {
+    return { seg: tag + '[class*="' + cssEsc(bestStem, false) + '"]' };
+  }
 
   const relSeg = attrSegment(el, ['rel']);
   if (relSeg) return { seg: relSeg };
@@ -539,7 +630,10 @@ interface PathSeg {
  * Segments arrive terminal-first; the worst tier is tried first so that if two
  * low-quality classes are interdependent the higher-quality one survives.
  */
-function pruneRedundant(segs: PathSeg[], root: Element | ShadowRoot): PathSeg[] {
+function pruneRedundant(
+  segs: PathSeg[],
+  root: Element | ShadowRoot,
+): PathSeg[] {
   const candidates = segs.filter((s) => s.droppable);
   if (candidates.length === 0) return segs;
   candidates.sort((a, b) => b.tier - a.tier); // tier C before tier B
