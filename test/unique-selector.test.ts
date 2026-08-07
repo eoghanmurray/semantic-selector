@@ -460,6 +460,41 @@ describe('semanticSelector', () => {
       expect(s).toContain('btn');
     });
 
+    it('rejects a transient state class carried on a BEM token', () => {
+      // `plyr__tab-focus` is present only because the element was just focused —
+      // recording it would pin on the act of recording. Matched per token, so
+      // `focus` is rejected but the sibling `plyr__control` is kept.
+      setHTML(`
+        <div>
+          <button class="plyr__tab-focus plyr__control" data-target="target">Play</button>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).toBe('button.plyr__control');
+      expect(s).not.toContain('focus');
+    });
+
+    it('rejects interaction states beyond the original list (pressed, expanded)', () => {
+      setHTML(`
+        <div>
+          <button class="accordion-trigger is-expanded pressed" data-target="target">More</button>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).toBe('button.accordion-trigger');
+      expect(s).not.toContain('expanded');
+      expect(s).not.toContain('pressed');
+    });
+
+    it('keeps content classes that merely contain a state word', () => {
+      // Per-token matching: `opengraph` is not the token `open`, `focusable` is
+      // not `focus` — substring matching wrongly rejected these.
+      setHTML(
+        '<section class="opengraph-preview" data-target="target">x</section>',
+      );
+      expect(sel(target())).toBe('section.opengraph-preview');
+    });
+
     it('uses a stable class that uniquely identifies among siblings', () => {
       setHTML(`
         <div>

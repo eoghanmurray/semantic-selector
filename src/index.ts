@@ -157,6 +157,87 @@ function moduleClassStem(cn: string): string | null {
   return stem;
 }
 
+/**
+ * Interaction / transient *state* classes: toggled on by JS or `:` pseudo-mirror
+ * in response to the current interaction (click, hover, focus, drag, open/close,
+ * play/pause, in-view) rather than describing what the element permanently *is*.
+ * They come and go between the moment a selector is recorded and when it is
+ * replayed, so they must never anchor a selector. Worse, a class like
+ * `plyr__tab-focus` is present *because* the element was just clicked/focused —
+ * recording it would pin the selector on the very act of recording it.
+ *
+ * A conservative, extend-as-needed set. A few entries are mild collision risks
+ * with content words (`open` ~ `opening-hours`, `current` ~ `current-affairs`,
+ * `loading` ~ `loading-spinner`); they earn their place because the state usage
+ * is far more common, and a false demotion is low-harm (it only matters when a
+ * better class is also present). Matched per token (see hasStateWord), so words
+ * that merely *contain* a state word — `opengraph`, `focusable`, `disclosure`,
+ * `preselection` — are kept.
+ */
+const STATE_WORDS = new Set([
+  'active',
+  'inactive',
+  'hover',
+  'hovered',
+  'hovering',
+  'focus',
+  'focused',
+  'selected',
+  'unselected',
+  'deselected',
+  'checked',
+  'unchecked',
+  'indeterminate',
+  'pressed',
+  'current',
+  'highlighted',
+  'activated',
+  'toggled',
+  'open',
+  'opened',
+  'opening',
+  'closed',
+  'closing',
+  'expanded',
+  'collapsed',
+  'shown',
+  'showing',
+  'hiding',
+  'hidden',
+  'visible',
+  'invisible',
+  'disabled',
+  'loading',
+  'busy',
+  'dragging',
+  'dragover',
+  'playing',
+  'paused',
+  'stuck',
+  'entering',
+  'leaving',
+  'animating',
+  'transitioning',
+]);
+
+/**
+ * Split a class name into its lowercase word tokens, breaking on `-`/`_`
+ * separators (BEM `block__element--modifier`, kebab) and camelCase humps
+ * (`isOpen` → `is`, `open`). Lets STATE_WORDS match whole words, not substrings.
+ */
+function classTokens(cn: string): string[] {
+  return cn
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((t) => t.toLowerCase());
+}
+
+/** Does any token of the class name name a transient interaction state? */
+function hasStateWord(cn: string): boolean {
+  return classTokens(cn).some((t) => STATE_WORDS.has(t));
+}
+
 /** Reject framework-generated class names */
 function isStableClass(cn: string): boolean {
   if (cn.length > MAX_IDENT_LEN) return false; // generated / serialized
@@ -165,10 +246,7 @@ function isStableClass(cn: string): boolean {
   if (/^css-/.test(cn)) return false; // emotion
   if (/^_[a-zA-Z0-9]{5,}$/.test(cn)) return false; // CSS modules hash
   if (moduleClassStem(cn)) return false; // CSS-Modules scoped `stem-HASH`
-  if (
-    /active|hover|focus|selected|open|closed|visible|hidden|disabled/i.test(cn)
-  )
-    return false; // state classes
+  if (hasStateWord(cn)) return false; // transient interaction-state class
   if (/\d{4,}/.test(cn)) return false; // contains long numeric sequences
   return true;
 }
