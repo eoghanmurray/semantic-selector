@@ -366,22 +366,54 @@ function urlBase(raw: string): string {
 }
 
 /**
+ * Longest match value we embed verbatim. Beyond this a url collapses to a
+ * boundary-anchored tail match (see urlSegment): the shared domain/path prefix
+ * is what makes these strings long, while the identity concentrates at the end.
+ */
+const MAX_URL_VALUE = 64;
+
+/** Boundaries between meaningful url tokens. */
+const URL_BOUNDARY = /[/?&=+#-]/;
+
+/**
+ * The longest suffix of `value` no longer than `MAX_URL_VALUE` that begins just
+ * after a token boundary, so a shortened match never starts mid-token. Falls
+ * back to a hard character tail when no boundary sits inside the window.
+ */
+function boundaryTail(value: string): string {
+  const window = value.slice(-MAX_URL_VALUE);
+  const m = window.search(URL_BOUNDARY); // earliest boundary → longest aligned tail
+  return m >= 0 ? window.slice(m + 1) : window;
+}
+
+/**
  * The url-matching segment for an element, or null if it has no usable url.
  * A volatile query collapses to a stripped prefix match; anything stable
  * (significant query, hash anchor, or no query at all) is matched exactly.
  * We deliberately never re-embed a volatile token (e.g. a per-visit
  * `?fbclid=…`) — the recorded selector would never reoccur.
+ *
+ * A value longer than MAX_URL_VALUE collapses to a boundary-anchored tail
+ * match, since a url's identity lives at its end, not in the shared prefix.
+ * The operator depends on where the volatility is: with a stable end we anchor
+ * the true suffix (`$=`); when we stripped a volatile query the end can't be
+ * trusted, so we match the tail of the *base* path as a mid-string substring
+ * (`*=`), which lands on the distinctive last path segment ahead of the query.
  */
 function urlSegment(el: Element): string | null {
   const info = urlAttr(el);
   if (!info) return null;
   const tag = el.tagName.toLowerCase();
-  if (preferStrip(info.raw)) {
-    return (
-      tag + '[' + info.attr + '^="' + cssEsc(urlBase(info.raw), false) + '"]'
-    );
+  const strip = preferStrip(info.raw);
+  const value = strip ? urlBase(info.raw) : info.raw;
+  if (value.length <= MAX_URL_VALUE) {
+    const op = strip ? '^=' : '=';
+    return tag + '[' + info.attr + op + '"' + cssEsc(value, false) + '"]';
   }
-  return tag + '[' + info.attr + '="' + cssEsc(info.raw, false) + '"]';
+  const op = strip ? '*=' : '$=';
+  return (
+    tag + '[' + info.attr + op + '"' + cssEsc(boundaryTail(value), false) + '"]'
+  );
 }
 
 // --- Attribute matching (finder uses role/name/aria-label/rel/href) ---

@@ -1023,6 +1023,37 @@ describe('semanticSelector', () => {
       );
     });
 
+    it('collapses an over-long stable url to a boundary-anchored suffix', () => {
+      // A meaningful single-param query we would otherwise embed whole (88
+      // chars). The identity is at the tail, so anchor the suffix there rather
+      // than record the shared category prefix.
+      setHTML(
+        '<a href="/product-category/drivhus-i-aluminium/?q=bredde-200cm/lengde-4m/vegg+og+tak-Polykarbonat">A</a>',
+      );
+      expect(sel(document.querySelector('a')!)).toBe(
+        'a[href$="i-aluminium/?q=bredde-200cm/lengde-4m/vegg+og+tak-Polykarbonat"]',
+      );
+    });
+
+    it('collapses an over-long stripped url to a base-path substring', () => {
+      // The query is volatile (utm bundle) so the end can't be trusted; the
+      // base path is still over budget, so match its distinctive tail as a
+      // mid-string substring ahead of the query.
+      setHTML(
+        '<a href="/shop/category/garden-buildings/aluminium-greenhouses/traditional-range/model-drivhus-i-aluminium?utm_source=x&utm_medium=y">A</a>',
+      );
+      expect(sel(document.querySelector('a')!)).toBe(
+        'a[href*="greenhouses/traditional-range/model-drivhus-i-aluminium"]',
+      );
+    });
+
+    it('hard-truncates a boundaryless over-long tail', () => {
+      setHTML(`<a href="/x?article=${'z'.repeat(90)}">A</a>`);
+      expect(sel(document.querySelector('a')!)).toBe(
+        `a[href$="${'z'.repeat(64)}"]`,
+      );
+    });
+
     it('never re-embeds a volatile query to disambiguate', () => {
       // Two links differ only by a per-visit fbclid. We must NOT lock onto the
       // throwaway token (it will change with each visit) collapse to the same
