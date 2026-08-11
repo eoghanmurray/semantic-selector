@@ -1159,7 +1159,8 @@ describe('semanticSelector', () => {
         </section>
       `);
       const s = sel(target());
-      expect(s).toContain(':has(#inside-anchor)');
+      // Direct child → the id is pinned one level down with `> #id`.
+      expect(s).toContain(':has(> #inside-anchor)');
       expect(s).not.toContain('+');
     });
 
@@ -1185,8 +1186,64 @@ describe('semanticSelector', () => {
         </ul>
       `);
       const s = sel(target());
-      expect(s).toContain(':has(#real-anchor)');
+      // The id sits a level down (li > p > i), pinned as `> * > #id`.
+      expect(s).toContain(':has(> * > #real-anchor)');
       expect(s).not.toContain('nth-of-type');
+    });
+
+    it('pins the :has to the id’s parent in a nested-div spine, not the whole spine', () => {
+      // Faithful to the leightonvans.co.uk make-filter: an anonymous same-tag div
+      // chain, the id-bearing <input> a direct child of the innermost div, and a
+      // decoy icon <span> before the text <span> (which is why the sibling-id
+      // anchor doesn't fire — the text span's previous sibling is the icon, not
+      // the input). A loose `:has(#id)` matches every div on the spine, including
+      // the outer container that also holds the BMW branch, so `:has(#id) span`
+      // leaks across to the BMW spans. The `> #id` child combinator isolates the
+      // one div that directly parents the id; the two spans that remain are the
+      // same-container residual the caller resolves with match-index/geometry.
+      setHTML(`
+        <div class="filters">
+          <div><div><input id="Volkswagen"><span class="ico"></span><span data-target="target">VW</span></div></div>
+          <div><div><input id="BMW"><span class="ico"></span><span>BMW</span></div></div>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).toBe(':has(> #Volkswagen) span');
+      const matches = Array.from(document.querySelectorAll(s));
+      expect(matches.length).toBe(2); // both spans in the VW branch, none from BMW
+      expect(matches).toContain(target());
+      // The loose form the old code produced leaks across to the BMW branch:
+      // .filters also matches `:has(#Volkswagen)` and holds all four spans.
+      expect(matchCount(':has(#Volkswagen) span')).toBe(4);
+    });
+
+    it('pins a grandchild id with a `> * >` level path', () => {
+      // The id is a grandchild of the anonymous <li> anchor (li > div > i), so
+      // the path carries one wildcard level: `:has(> * > #id)`. It still isolates
+      // the single <li>, keeping the target span unique.
+      setHTML(`
+        <ul>
+          <li><div><i id="vw-badge"></i></div><span data-target="target">VW</span></li>
+          <li><div><i id="bmw-badge"></i></div><span>BMW</span></li>
+        </ul>
+      `);
+      const s = expectResolves(target());
+      expect(s).toBe(':has(> * > #vw-badge) span');
+    });
+
+    it('ignores an id deeper than the depth cap and anchors elsewhere', () => {
+      // #too-deep is three levels below the otherwise-anonymous wrapper div —
+      // past MAX_HAS_ID_DEPTH — so it is not used as a :has anchor. The walk
+      // climbs to the classed ancestor instead of emitting a fragile deep path.
+      setHTML(`
+        <section class="panel">
+          <div><div><div><i id="too-deep"></i></div></div><span data-target="target">x</span></div>
+        </section>
+      `);
+      const s = expectResolves(target());
+      expect(s).not.toContain(':has');
+      expect(s).not.toContain('too-deep');
+      expect(s).toBe('.panel span');
     });
 
     it('skips data: URIs', () => {

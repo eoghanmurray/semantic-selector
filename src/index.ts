@@ -481,22 +481,39 @@ function attrSegment(el: Element, names: string[]): string | null {
   return null;
 }
 
+// How far below an element `findStableDescendantId` will look for an anchoring
+// id. The id's depth becomes `> … > #id` child combinators inside the `:has()`,
+// so this also caps how many `> *` levels a `:has(> * > #id)` segment can carry.
+// Kept small: the anchor should sit right at (or just above) the id, so the two
+// move together — an id several levels down a different branch is a coincidence,
+// not identity, and a long fixed path is fragile to any inserted wrapper.
+const MAX_HAS_ID_DEPTH = 2;
+
 /**
- * Find the nearest stable id inside an element's subtree (breadth-first, so we
- * prefer the shallowest match). Used to anchor an otherwise-structural ancestor
- * via `tag:has(#id)`: because the id lives *within* the element's subtree it
- * moves together with it, which is more robust than an nth-of-type ordinal.
- * Bounded so it stays cheap on large subtrees.
+ * Find the nearest stable id inside an element's subtree and how deep it sits
+ * (breadth-first, so we prefer the shallowest match; depth 1 = a direct child).
+ * Used to anchor an otherwise-structural ancestor via `tag:has(> … > #id)`: the
+ * id lives *within* the element's subtree so it moves together with it (more
+ * robust than an nth-of-type ordinal), and the depth lets the caller pin the
+ * exact child path — `:has(> #id)` isolates the *one* element that directly
+ * parents the id, where a loose `:has(#id)` matches every ancestor on its spine
+ * (fatal in a same-tag nested-div chain). Bounded by MAX_HAS_ID_DEPTH (and a
+ * node cap) so it stays cheap and never anchors on a coincidental deep id.
  */
-function findStableDescendantId(el: Element): string | null {
-  const queue: Element[] = [];
-  for (let i = 0; i < el.children.length; i++) queue.push(el.children[i]);
+function findStableDescendantId(
+  el: Element,
+): { id: string; depth: number } | null {
+  const queue: { node: Element; depth: number }[] = [];
+  for (let i = 0; i < el.children.length; i++)
+    queue.push({ node: el.children[i], depth: 1 });
   let scanned = 0;
   for (let head = 0; head < queue.length; head++) {
-    const node = queue[head];
+    const { node, depth } = queue[head];
     if (++scanned > 200) break;
-    if (node.id && isStableId(node.id)) return node.id;
-    for (let i = 0; i < node.children.length; i++) queue.push(node.children[i]);
+    if (node.id && isStableId(node.id)) return { id: node.id, depth };
+    if (depth >= MAX_HAS_ID_DEPTH) continue;
+    for (let i = 0; i < node.children.length; i++)
+      queue.push({ node: node.children[i], depth: depth + 1 });
   }
   return null;
 }
@@ -521,7 +538,7 @@ const RANK_ROLE = 6; // landmark / widget role
 const RANK_CLASS_C = 7; // utility / atomic class
 const RANK_CLASS_PARTIAL = 8; // CSS-Modules stem via [class*="…"]
 const RANK_REL = 9; // rel
-const RANK_HAS_ID = 10; // a stable id within the subtree (:has(#id))
+const RANK_HAS_ID = 10; // a stable id within the subtree (:has(> #id))
 const RANK_SIBLING_ID = 11; // a stable id on the preceding sibling (prev#id + tag)
 
 /** Map a class tier (A/B/C = 0/1/2) to its identity rank (aria=4, role=6 interleave). */
@@ -540,7 +557,7 @@ function classRank(tier: number): number {
  *    `[class*=stem]` > `rel` (a low-quality class loses to an explicit
  *    accessible name / landmark role; a CSS-Modules stem matched by substring
  *    is a loose last resort below every full class)
- *  - a stable id within its subtree (`tag:has(#id)`) — the id moves *with* the
+ *  - a stable id within its subtree (`tag:has(> #id)`) — the id moves *with* the
  *    element, so it's the more robust of the two id-anchored fallbacks
  *  - a stable id on its immediate preceding sibling (`prev#id + tag`) — e.g. a
  *    heading pinning the paragraph after it (`h1#intro + p`). The anchor is a
@@ -621,9 +638,16 @@ function nonIdSegment(el: Element): { seg: string; rank: number } | null {
   const relSeg = attrSegment(el, ['rel']);
   if (relSeg) return { seg: relSeg, rank: RANK_REL };
 
-  const descId = findStableDescendantId(el);
-  if (descId)
-    return { seg: tag + ':has(' + idSelector(descId) + ')', rank: RANK_HAS_ID };
+  const desc = findStableDescendantId(el);
+  if (desc) {
+    // Pin the id's exact depth with child combinators (`> #id`, `> * > #id`) so
+    // the anchor is the *one* element that directly parents (or grandparents)
+    // the id — not every ancestor on the id's spine, which a loose `:has(#id)`
+    // would match, then re-expand back through <body> via the trailing
+    // descendant combinator (fatal in a same-tag nested-div chain).
+    const rel = '> ' + '* > '.repeat(desc.depth - 1) + idSelector(desc.id);
+    return { seg: tag + ':has(' + rel + ')', rank: RANK_HAS_ID };
+  }
 
   const prev = el.previousElementSibling;
   if (prev && prev.id && isStableId(prev.id)) {
@@ -730,7 +754,7 @@ export function semanticSelector(
       pushedRank = seg.rank;
     }
     // Stop once we've just anchored on a stable id — an own `#id`, or a
-    // `:has(#id)` / `prev#id + tag` fallback that already embeds one. Climbing
+    // `:has(> #id)` / `prev#id + tag` fallback that already embeds one. Climbing
     // further would at best re-reference that id (a redundant `:has(#id) #id`)
     // and can't strengthen an id anchor.
     if (
