@@ -116,9 +116,9 @@ describe('semanticSelector', () => {
       `);
       const s = sel(target());
       expect(s).toContain('#sidebar');
-      // ul is structural and dropped; descendant combinator skips it. The
-      // ancestor #sidebar sheds its tag; only the terminal keeps one (bare li).
-      expect(s).toBe('#sidebar li');
+      // The bare <li> takes list-type identity from its <ul> parent (a struct
+      // tag), binding as its direct child; #sidebar sheds its tag and scopes.
+      expect(s).toBe('#sidebar ul > li');
     });
 
     it('accepts purely numeric IDs via an [id="..."] selector', () => {
@@ -678,6 +678,63 @@ describe('semanticSelector', () => {
   });
 
   // -------------------------------------------------------------------
+  // Structural-tag identity (a tag whose NAME disambiguates a child role)
+  // -------------------------------------------------------------------
+
+  describe('structural-tag identity', () => {
+    it('distinguishes an <li> in <ol> from one in <ul>', () => {
+      setHTML('<ol><li data-target="target">A</li><li>B</li></ol>');
+      // The <ol> carries no id/class, but its tag is weak identity: an ordered
+      // list item is not an unordered one. <li> is a container tag, so it binds
+      // as a direct child (`ol > li`).
+      expect(sel(target())).toBe('ol > li');
+    });
+
+    it('uses <ul> for an unordered list item', () => {
+      setHTML('<ul><li data-target="target">A</li><li>B</li></ul>');
+      expect(sel(target())).toBe('ul > li');
+    });
+
+    it('distinguishes a header cell from a body cell by table section', () => {
+      setHTML(`
+        <table>
+          <thead><tr><td data-target="h">H</td></tr></thead>
+          <tbody><tr><td data-target="b">B</td></tr></tbody>
+        </table>
+      `);
+      // <td>'s parent <tr> is pure structure (dropped); the <thead>/<tbody>
+      // grandparent is the disambiguating anchor. <td> is not a container tag,
+      // so it stays a descendant.
+      expect(sel(target('h'))).toBe('thead td');
+      expect(sel(target('b'))).toBe('tbody td');
+    });
+
+    it('prefers a real id on the list over the weak tag', () => {
+      setHTML('<ul id="menu"><li data-target="target">A</li></ul>');
+      // #menu (rank 0) beats the <ul> tag (weakest rank); the container <li>
+      // still binds as its direct child.
+      expect(sel(target())).toBe('#menu > li');
+    });
+
+    it('anchors a cell on the browser-inserted <tbody>, even without one in markup', () => {
+      // The markup has no <tbody>, but the HTML parser inserts one, so the live
+      // DOM path is table > tbody > tr > td. We walk the real tree, so we see it
+      // and `tbody td` resolves. <tr> is dropped (pure structure) and <table>
+      // carries no identity here, so the section is the anchor.
+      setHTML('<table><tr><td data-target="target">x</td></tr></table>');
+      expect(document.querySelector('tbody')).not.toBeNull(); // parser inserted it
+      expect(sel(target())).toBe('tbody td');
+    });
+
+    it('scopes the cell when the table itself carries a real id', () => {
+      setHTML(
+        '<table id="grid"><tbody><tr><td data-target="target">x</td></tr></tbody></table>',
+      );
+      expect(sel(target())).toBe('#grid tbody td');
+    });
+  });
+
+  // -------------------------------------------------------------------
   // Real-world page patterns
   // -------------------------------------------------------------------
 
@@ -878,9 +935,10 @@ describe('semanticSelector', () => {
     });
 
     it('identity-less siblings share one selector (the matchIndex case)', () => {
-      // No id/class/href to latch onto, so both <li> collapse to "li". This is
-      // residual ambiguity by design — not a fragile positional ordinal that
-      // silently retargets when a sibling is prepended.
+      // No id/class/href to latch onto: both <li> take only list-type identity
+      // from their <ul> and collapse to "ul > li". This is residual ambiguity by
+      // design — not a fragile positional ordinal that silently retargets when a
+      // sibling is prepended.
       setHTML(`
         <ul>
           <li data-target="target">First</li>
@@ -888,7 +946,7 @@ describe('semanticSelector', () => {
         </ul>
       `);
       const s = sel(target());
-      expect(s).toBe('li');
+      expect(s).toBe('ul > li');
       expect(s).not.toContain('nth-of-type');
       expect(matchCount(s)).toBe(2);
 

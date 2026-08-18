@@ -540,6 +540,27 @@ const RANK_CLASS_PARTIAL = 8; // CSS-Modules stem via [class*="…"]
 const RANK_REL = 9; // rel
 const RANK_HAS_ID = 10; // a stable id within the subtree (:has(> #id))
 const RANK_SIBLING_ID = 11; // a stable id on the preceding sibling (prev#id + tag)
+const RANK_STRUCT_TAG = 12; // a structural tag whose NAME disambiguates a child role
+
+// Structural tags whose *tag name* is weak identity because it changes a
+// contained element's role: an <li> under <ol> vs <ul> is ordered vs unordered;
+// a <td>/<th>/<tr> under <thead> vs <tbody> vs <tfoot> is a header vs body vs
+// footer cell. Unlike a generic <div>/<span> wrapper (pure structure, always
+// dropped), these are worth keeping as a last-resort anchor. Deliberately narrow:
+// a <table>/<tr>/<dl> wrapper does NOT disambiguate its children (every cell is in
+// a table; both <dt> and <dd> sit under <dl>), so they are not included.
+const STRUCT_IDENTITY_TAGS = new Set(['ul', 'ol', 'thead', 'tbody', 'tfoot']);
+
+// A struct tag is identity ONLY for the specific child role it disambiguates: a
+// list item, or a table cell/row. It adds nothing to any other descendant (a
+// <button> nested inside a cell is not "a table-body button"), so it is kept only
+// when the terminal is one of these qualified tags — and only when that terminal
+// is otherwise identity-less (see semanticSelector).
+function structTagQualifies(structTag: string, terminalTag: string): boolean {
+  if (structTag === 'ul' || structTag === 'ol') return terminalTag === 'li';
+  // thead / tbody / tfoot
+  return terminalTag === 'tr' || terminalTag === 'td' || terminalTag === 'th';
+}
 
 /** Map a class tier (A/B/C = 0/1/2) to its identity rank (aria=4, role=6 interleave). */
 function classRank(tier: number): number {
@@ -765,8 +786,9 @@ export function semanticSelector(
   // the nearest identity ancestor via a descendant combinator. A non-container
   // terminal (`button`, `i`, `a`, …) also keeps the descendant combinator — the
   // narrowing isn't worth the fragility of a `>` an inserted wrapper would break.
-  const pinChild =
-    !semanticSegment(el) && CONTAINER_TAGS.has(el.tagName.toLowerCase());
+  const terminalTag = el.tagName.toLowerCase();
+  const terminalBare = !semanticSegment(el);
+  const pinChild = terminalBare && CONTAINER_TAGS.has(terminalTag);
 
   const parts: string[] = [];
   // combs[i] is the combinator that joins parts[i] to parts[i-1] (the part one
@@ -778,7 +800,21 @@ export function semanticSelector(
   let isTerminal = true;
 
   while (current && current !== root && current !== document.documentElement) {
-    const seg = semanticSegment(current);
+    let seg = semanticSegment(current);
+    // An identity-less struct tag (ul/ol, thead/tbody/tfoot) is weak identity for
+    // a bare terminal it qualifies (a list item / table cell): keep it as a
+    // last-resort anchor. Gated so it never adds noise to an already-identified
+    // terminal, nor to a descendant whose role it doesn't govern.
+    const ct = current.tagName.toLowerCase();
+    if (
+      !seg &&
+      !isTerminal &&
+      terminalBare &&
+      STRUCT_IDENTITY_TAGS.has(ct) &&
+      structTagQualifies(ct, terminalTag)
+    ) {
+      seg = { seg: ct, rank: RANK_STRUCT_TAG };
+    }
     const isImmediateParent = !isTerminal && current === el.parentElement;
     let pushedRank: number | null = null;
     if (isTerminal) {
