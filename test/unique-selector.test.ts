@@ -596,6 +596,8 @@ describe('semanticSelector', () => {
     it('rejects auto-generated-looking attribute values', () => {
       setHTML('<button name="field-20487" data-target="target">x</button>');
       const s = sel(target());
+      // name value is auto-generated → rejected; <button> is a non-container tag,
+      // so it stays a bare tag (no `:scope >` pinning).
       expect(s).toBe('button');
       expect(s).not.toContain('name=');
     });
@@ -716,7 +718,8 @@ describe('semanticSelector', () => {
       const s = sel(target());
       // `.product-card` (tier A) is the terminal's best ancestor identity; the
       // outer `.product-grid` is the same tier, so the ratchet skips it as no
-      // improvement. Three identical cards — ambiguity resolved by matchIndex.
+      // improvement. <button> is non-container, so it keeps the descendant
+      // combinator. Three identical cards — ambiguity resolved by matchIndex.
       expect(s).toBe('.product-card button');
       expect(matchCount(s)).toBe(3);
     });
@@ -814,6 +817,7 @@ describe('semanticSelector', () => {
       // .product-card is tier A. Even though the lone button is unique without
       // it, the semantic wrapper is kept — it scopes the click meaningfully and
       // guards against unrelated buttons appearing on a later version of the page.
+      // <button> is non-container, so it keeps the descendant combinator.
       setHTML(`
         <div class="product-card">
           <h3>Item</h3>
@@ -919,7 +923,36 @@ describe('semanticSelector', () => {
 
     it('handles elements with no parent (body direct child)', () => {
       setHTML('<button data-target="target">Solo</button>');
+      // <button> is a non-container tag, so no `:scope >` pinning — a bare tag.
       expect(sel(target())).toBe('button');
+    });
+
+    it('pins a bare CONTAINER child but leaves a bare CONTENT child a descendant', () => {
+      // The child combinator is gated on the terminal being a generic container
+      // tag. A <div> nests heavily, so `#box > div` is worth the fragility of a
+      // `>` an inserted wrapper would break; a <button> barely nests, so it keeps
+      // the wrapper-robust descendant form.
+      setHTML(
+        '<div id="box"><div data-target="d"></div><button data-target="b"></button></div>',
+      );
+      expect(sel(target('d'))).toBe('#box > div');
+      expect(sel(target('b'))).toBe('#box button');
+    });
+
+    it('keeps a root-level bare div off a deep div tree (identity-less ad-slot case)', () => {
+      // The real pathology (xflixbd.org homepage): identity-less top-level divs
+      // directly under <body> (injected ad/widget slots) alongside a deep tree
+      // full of <div>s. A page-wide `div` matches every one; `:scope > div`
+      // restricts to the root's own children.
+      setHTML(`
+        <div class="content"><div><div><div>deep</div></div></div></div>
+        <div data-target="target"></div>
+        <div></div>
+      `);
+      const s = sel(target());
+      expect(s).toBe(':scope > div');
+      expect(matchCount(s)).toBe(3); // 3 direct children of root…
+      expect(document.body.querySelectorAll('div').length).toBe(6); // …vs 6 total
     });
 
     it('handles deeply nested identical structures', () => {
@@ -1199,8 +1232,9 @@ describe('semanticSelector', () => {
       // the input). A loose `:has(#id)` matches every div on the spine, including
       // the outer container that also holds the BMW branch, so `:has(#id) span`
       // leaks across to the BMW spans. The `> #id` child combinator isolates the
-      // one div that directly parents the id; the two spans that remain are the
-      // same-container residual the caller resolves with match-index/geometry.
+      // one div that directly parents the id; the target span (bare) is in turn
+      // pinned as that div's direct child (`> span`). The two spans that remain
+      // are the same-container residual the caller resolves with match-index.
       setHTML(`
         <div class="filters">
           <div><div><input id="Volkswagen"><span class="ico"></span><span data-target="target">VW</span></div></div>
@@ -1208,7 +1242,7 @@ describe('semanticSelector', () => {
         </div>
       `);
       const s = sel(target());
-      expect(s).toBe(':has(> #Volkswagen) span');
+      expect(s).toBe(':has(> #Volkswagen) > span');
       const matches = Array.from(document.querySelectorAll(s));
       expect(matches.length).toBe(2); // both spans in the VW branch, none from BMW
       expect(matches).toContain(target());
@@ -1228,7 +1262,7 @@ describe('semanticSelector', () => {
         </ul>
       `);
       const s = expectResolves(target());
-      expect(s).toBe(':has(> * > #vw-badge) span');
+      expect(s).toBe(':has(> * > #vw-badge) > span');
     });
 
     it('ignores an id deeper than the depth cap and anchors elsewhere', () => {

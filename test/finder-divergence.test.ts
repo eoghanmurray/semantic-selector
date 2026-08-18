@@ -44,20 +44,25 @@ describe('divergence from finder', () => {
     setHTML('<div id="foo"><i></i></div><div id="foo"><i></i></div>');
     const i = document.body.querySelector('i')!;
     const s = semanticSelector(i);
+    // <i> is a non-container tag: it keeps the descendant combinator (a `>` an
+    // inserted wrapper would break isn't worth it — <i> barely nests). Both
+    // duplicate #foo divs contain an <i>, so it still matches 2.
     expect(s).toBe('#foo i');
     expect(s).not.toContain('nth-of-type');
     expect(matchCount(s)).toBe(2);
   });
 
   // finder test: 'bad-class-names'
-  it('drops emotion-style hashed classes, leaving a bare tag', () => {
+  it('drops emotion-style hashed classes, leaving a root-scoped bare tag', () => {
     // finder rejects these via wordLike (they contain digits); so do we via the
     // css- prefix rule. Both end up with no class — but finder then appends a
-    // positional ordinal to stay unique, whereas we accept the ambiguity.
+    // positional ordinal to stay unique, whereas we accept the ambiguity. Being
+    // a bare tag directly under the root, it is scoped to the root's children
+    // (`:scope > div`); both hashed divs are direct children, so it matches 2.
     setHTML('<div class="css-175oi2r"></div><div class="css-y6a5a9i"></div>');
     const divs = document.body.querySelectorAll('div');
     const s = semanticSelector(divs[0]);
-    expect(s).toBe('div');
+    expect(s).toBe(':scope > div');
     expect(s).not.toContain('css-');
     expect(matchCount(s)).toBe(2);
   });
@@ -68,7 +73,9 @@ describe('divergence from finder', () => {
     // stable [id="..."] anchor (finder forks PR #69).
     setHTML('<div id="12345"><span>x</span></div>');
     const span = document.body.querySelector('span')!;
-    expect(semanticSelector(span)).toBe('[id="12345"] span');
+    // Bare <span> (a container tag), immediate parent the id'd div → pinned as
+    // its direct child.
+    expect(semanticSelector(span)).toBe('[id="12345"] > span');
   });
 
   it('never emits a positional ordinal for identity-less siblings', () => {

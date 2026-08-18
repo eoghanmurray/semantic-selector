@@ -725,6 +725,27 @@ function stripLeadingTag(seg: string): string {
  * a duplicated id, collapse to the same selector by design. The caller resolves
  * residual ambiguity with a match index plus geometry, never a positional ordinal.
  */
+// Tags that *nest or repeat in numbers* under an ancestor, so a descendant
+// combinator over-matches: an `#anchor div` can resolve to dozens of elements.
+// For a bare (identity-less) terminal of one of these we pin it as a *direct
+// child* (`#anchor > div`), accepting that an inserted wrapper would break the
+// `>`, because the descendant form is otherwise near-useless. Every other tag —
+// content / interactive / leaf (`a`, `button`, `i`, `img`, `p`, `h2`, …) AND
+// page-singleton landmarks (`main`, `header`, `footer`, `nav`, which don't repeat
+// so `#anchor nav` is already selective) — keeps the descendant combinator: it is
+// about as selective and survives a wrapper inserted above the target
+// (`#anchor <p> i` still matches, where `#anchor > i` would not). An allowlist,
+// so any unrecognised tag defaults to the wrapper-robust descendant form.
+const CONTAINER_TAGS = new Set([
+  'div',
+  'span', // generic flow containers — the pervasive, deeply-nested case
+  'li',
+  'ul',
+  'ol', // list containers — repeat heavily, nest in sub-menus
+  'section',
+  'article', // sectioning containers that nest (comment threads, sub-sections)
+]);
+
 export function semanticSelector(
   el: Element,
   root: Element | ShadowRoot = document.body,
@@ -732,7 +753,25 @@ export function semanticSelector(
   if (el === root) return el.tagName.toLowerCase();
   if (!el.tagName) return ''; // e.g. document node
 
+  // A terminal (clicked) element with no identity of its own falls back to a
+  // bare tag (`div`), which under a descendant combinator matches every such tag
+  // in the tree — a match set that can run into the hundreds (a page full of
+  // structural `<div>`s). For a bare terminal whose tag is a generic *container*
+  // (see CONTAINER_TAGS) we instead pin it as a *direct child* of its immediate
+  // parent (`… > div`): structure is the only identity it has. The left-hand side
+  // is the parent's own identity segment, or `:scope` when the parent is the walk
+  // root (e.g. <body>). A structural (also identity-less) parent is left alone: a
+  // `>` to a *dropped* wrapper would misrepresent the DOM, so those still climb to
+  // the nearest identity ancestor via a descendant combinator. A non-container
+  // terminal (`button`, `i`, `a`, …) also keeps the descendant combinator — the
+  // narrowing isn't worth the fragility of a `>` an inserted wrapper would break.
+  const pinChild =
+    !semanticSegment(el) && CONTAINER_TAGS.has(el.tagName.toLowerCase());
+
   const parts: string[] = [];
+  // combs[i] is the combinator that joins parts[i] to parts[i-1] (the part one
+  // step nearer the terminal); combs[0] is unused (the terminal has none below).
+  const combs: string[] = [];
   let bestRank = Infinity;
   let anchored = false; // kept the nearest identity ancestor yet?
   let current: Element | null = el;
@@ -740,15 +779,21 @@ export function semanticSelector(
 
   while (current && current !== root && current !== document.documentElement) {
     const seg = semanticSegment(current);
+    const isImmediateParent = !isTerminal && current === el.parentElement;
     let pushedRank: number | null = null;
     if (isTerminal) {
       parts.push(seg ? seg.seg : current.tagName.toLowerCase());
+      combs.push('');
       bestRank = seg ? seg.rank : Infinity;
       pushedRank = seg ? seg.rank : null;
     } else if (seg && (!anchored || seg.rank < bestRank)) {
       // The nearest identity ancestor is kept unconditionally (the container
       // anchor); every one above it must strictly improve on the best so far.
       parts.push(stripLeadingTag(seg.seg));
+      // A bare container terminal binds to its *immediate* identity parent as a
+      // direct child (`.card > div`), tightening the match to that parent's
+      // children; a non-container terminal stays a descendant (see pinChild).
+      combs.push(pinChild && isImmediateParent ? ' > ' : ' ');
       anchored = true;
       if (seg.rank < bestRank) bestRank = seg.rank;
       pushedRank = seg.rank;
@@ -767,5 +812,20 @@ export function semanticSelector(
     isTerminal = false;
   }
 
-  return parts.reverse().join(' ');
+  // A bare terminal that is a direct child of the walk root: the loop stops at
+  // the root without emitting it (the root is the scope — `body > div` wouldn't
+  // resolve under `root.querySelectorAll`). Pin it with `:scope`, which refers to
+  // the root itself, so `div` becomes `:scope > div` and the match set shrinks
+  // from every descendant `div` to the root's direct `div` children.
+  if (pinChild && !anchored && parts.length === 1 && el.parentNode === root) {
+    parts.push(':scope');
+    combs.push(' > ');
+  }
+
+  // Join outermost ancestor → terminal, each gap using its recorded combinator.
+  let out = parts[parts.length - 1];
+  for (let i = parts.length - 2; i >= 0; i--) {
+    out += combs[i + 1] + parts[i];
+  }
+  return out;
 }
