@@ -1068,6 +1068,58 @@ describe('semanticSelector', () => {
   });
 
   // -------------------------------------------------------------------
+  // :has(url) — a bare container borrows a distinctive descendant's url
+  // -------------------------------------------------------------------
+
+  describe(':has(url) descendant identity', () => {
+    it('identifies a bare <p> by a link it wraps, and disambiguates siblings', () => {
+      setHTML(`
+        <section id="s">
+          <p data-target="target">intro with <a href="/buy">buy</a></p>
+          <p>plain paragraph</p>
+          <p>another one</p>
+        </section>
+      `);
+      // Bare <p> has no id/class; it borrows the href of the link it contains.
+      const s = sel(target());
+      expect(s).toBe('#s p:has(> a[href="/buy"])');
+      expect(matchCount(s)).toBe(1); // vs `#s p`, which matches all three
+    });
+
+    it('borrows a descendant img src too', () => {
+      setHTML('<div id="a"><p data-target="target"><img src="/logo.png">caption</p></div>');
+      expect(sel(target())).toBe('#a p:has(> img[src="/logo.png"])');
+    });
+
+    it('pins a grandchild link at the right depth', () => {
+      setHTML(
+        '<article id="art"><p data-target="target">x <span><a href="/deep">y</a></span></p></article>',
+      );
+      expect(sel(target())).toBe('#art p:has(> * > a[href="/deep"])');
+    });
+
+    it('prefers a descendant id over a descendant url', () => {
+      setHTML('<div id="a"><p data-target="target">x <b id="k">y</b> <a href="/z">z</a></p></div>');
+      expect(sel(target())).toBe('p:has(> #k)');
+    });
+
+    it("prefers the element's own class over a borrowed descendant url", () => {
+      setHTML('<p class="lede" data-target="target">hi <a href="/buy">buy</a></p>');
+      expect(sel(target())).toBe('p.lede');
+    });
+
+    it('never borrows a descendant url to identify an ANCESTOR', () => {
+      // The terminal <button> is bare; its wrapper holds a link, but an ancestor
+      // must not take :has(url) — that borrowed identity is terminal-only.
+      setHTML('<div id="wrap"><a href="/x">x</a><button data-target="target">go</button></div>');
+      expect(sel(target())).toBe('#wrap button');
+      // And a link terminal keeps its own href, with no ancestor :has noise.
+      setHTML('<nav><a href="/home">h</a><a href="/about" data-target="t2">a</a></nav>');
+      expect(sel(target('t2'))).toBe('a[href="/about"]');
+    });
+  });
+
+  // -------------------------------------------------------------------
   // URL-in-selector (links / images)
   // finder PR: https://github.com/antonmedv/finder/pull/74
   // -------------------------------------------------------------------

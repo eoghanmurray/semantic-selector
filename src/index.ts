@@ -481,13 +481,14 @@ function attrSegment(el: Element, names: string[]): string | null {
   return null;
 }
 
-// How far below an element `findStableDescendantId` will look for an anchoring
-// id. The id's depth becomes `> … > #id` child combinators inside the `:has()`,
-// so this also caps how many `> *` levels a `:has(> * > #id)` segment can carry.
-// Kept small: the anchor should sit right at (or just above) the id, so the two
-// move together — an id several levels down a different branch is a coincidence,
-// not identity, and a long fixed path is fragile to any inserted wrapper.
-const MAX_HAS_ID_DEPTH = 2;
+// How far below an element the `:has()` descendant-anchor searches look — for an
+// anchoring id or, failing that, a distinctive descendant url. The depth becomes
+// `> … > x` child combinators inside the `:has()`, so this also caps how many
+// `> *` levels a `:has(> * > x)` segment can carry. Kept small: the anchor should
+// sit right at (or just above) the descendant, so the two move together — a match
+// several levels down a different branch is a coincidence, not identity, and a
+// long fixed path is fragile to any inserted wrapper.
+const MAX_HAS_DEPTH = 2;
 
 /**
  * Find the nearest stable id inside an element's subtree and how deep it sits
@@ -497,7 +498,7 @@ const MAX_HAS_ID_DEPTH = 2;
  * robust than an nth-of-type ordinal), and the depth lets the caller pin the
  * exact child path — `:has(> #id)` isolates the *one* element that directly
  * parents the id, where a loose `:has(#id)` matches every ancestor on its spine
- * (fatal in a same-tag nested-div chain). Bounded by MAX_HAS_ID_DEPTH (and a
+ * (fatal in a same-tag nested-div chain). Bounded by MAX_HAS_DEPTH (and a
  * node cap) so it stays cheap and never anchors on a coincidental deep id.
  */
 function findStableDescendantId(
@@ -511,7 +512,34 @@ function findStableDescendantId(
     const { node, depth } = queue[head];
     if (++scanned > 200) break;
     if (node.id && isStableId(node.id)) return { id: node.id, depth };
-    if (depth >= MAX_HAS_ID_DEPTH) continue;
+    if (depth >= MAX_HAS_DEPTH) continue;
+    for (let i = 0; i < node.children.length; i++)
+      queue.push({ node: node.children[i], depth: depth + 1 });
+  }
+  return null;
+}
+
+/**
+ * Like findStableDescendantId, but anchors on a descendant's URL identity
+ * (`a[href]` / `img[src]`) — used only when no descendant id is available. An
+ * otherwise identity-less container borrows the identity of a distinctive link or
+ * image it wraps (a bare `<p>` around a link → `p:has(> a[href="/buy"])`). The url
+ * lives inside the subtree, so it moves with the element. Same BFS bounds as the
+ * id search; the depth pins the exact child path like `:has(> #id)` does.
+ */
+function findStableDescendantUrl(
+  el: Element,
+): { urlSeg: string; depth: number } | null {
+  const queue: { node: Element; depth: number }[] = [];
+  for (let i = 0; i < el.children.length; i++)
+    queue.push({ node: el.children[i], depth: 1 });
+  let scanned = 0;
+  for (let head = 0; head < queue.length; head++) {
+    const { node, depth } = queue[head];
+    if (++scanned > 200) break;
+    const u = urlSegment(node);
+    if (u) return { urlSeg: u, depth };
+    if (depth >= MAX_HAS_DEPTH) continue;
     for (let i = 0; i < node.children.length; i++)
       queue.push({ node: node.children[i], depth: depth + 1 });
   }
@@ -539,8 +567,9 @@ const RANK_CLASS_C = 7; // utility / atomic class
 const RANK_CLASS_PARTIAL = 8; // CSS-Modules stem via [class*="…"]
 const RANK_REL = 9; // rel
 const RANK_HAS_ID = 10; // a stable id within the subtree (:has(> #id))
-const RANK_SIBLING_ID = 11; // a stable id on the preceding sibling (prev#id + tag)
-const RANK_STRUCT_TAG = 12; // a structural tag whose NAME disambiguates a child role
+const RANK_HAS_URL = 11; // a distinctive url within the subtree (:has(> a[href="…"]))
+const RANK_SIBLING_ID = 12; // a stable id on the preceding sibling (prev#id + tag)
+const RANK_STRUCT_TAG = 13; // a structural tag whose NAME disambiguates a child role
 
 // Structural tags whose *tag name* is weak identity because it changes a
 // contained element's role: an <li> under <ol> vs <ul> is ordered vs unordered;
@@ -585,7 +614,10 @@ function classRank(tier: number): number {
  *    *separate* adjacent element, so it's more fragile (an inserted node between
  *    them breaks `+`); hence it sits last.
  */
-function nonIdSegment(el: Element): { seg: string; rank: number } | null {
+function nonIdSegment(
+  el: Element,
+  allowDescendantUrl: boolean,
+): { seg: string; rank: number } | null {
   const tag = el.tagName.toLowerCase();
 
   const url = urlSegment(el);
@@ -670,6 +702,21 @@ function nonIdSegment(el: Element): { seg: string; rank: number } | null {
     return { seg: tag + ':has(' + rel + ')', rank: RANK_HAS_ID };
   }
 
+  // No descendant id, but a distinctive descendant url is the next-best borrowed
+  // identity: a bare `<p>` around a link becomes `p:has(> a[href="/buy"])`. Depth
+  // is pinned exactly as for the id case. A url is not a unique handle (unlike an
+  // id), so — unlike RANK_HAS_ID — this does NOT stop the ancestor walk: the
+  // ratchet keeps climbing to add a scoping id/class above (`#section p:has(…)`).
+  // Restricted to the terminal (allowDescendantUrl): borrowing a child's url to
+  // identify an *ancestor* container is arbitrary (a <nav> holds many links) and
+  // noisy, whereas a unique descendant id is safe — so only the clicked element
+  // takes this fallback.
+  const descUrl = allowDescendantUrl ? findStableDescendantUrl(el) : null;
+  if (descUrl) {
+    const rel = '> ' + '* > '.repeat(descUrl.depth - 1) + descUrl.urlSeg;
+    return { seg: tag + ':has(' + rel + ')', rank: RANK_HAS_URL };
+  }
+
   const prev = el.previousElementSibling;
   if (prev && prev.id && isStableId(prev.id)) {
     return {
@@ -685,18 +732,25 @@ function nonIdSegment(el: Element): { seg: string; rank: number } | null {
  * The identity segment for one element and its rank, or null if it carries no
  * identity. A stable own id is the top rank (RANK_ID); otherwise defer to
  * `nonIdSegment` (url > name > class/aria/role/rel interleaved > `:has(#id)` >
- * `prev#id + tag`). A purely structural element returns null and is dropped.
+ * `:has(url)` > `prev#id + tag`). A purely structural element returns null and is
+ * dropped.
+ *
+ * `allowDescendantUrl` enables the `:has(url)` borrowed-identity fallback; it is
+ * passed true only for the terminal (clicked) element — see nonIdSegment.
  *
  * No weak/strong id distinction: every stable id is treated as one strong rank.
  * A CMS-enumerated id (`block-12`) that renumbers when the page is re-edited is
  * accepted at face value — the residual ambiguity when it moves is the caller's
  * match-index/geometry job, same as any other collapsed identity.
  */
-function semanticSegment(el: Element): { seg: string; rank: number } | null {
+function semanticSegment(
+  el: Element,
+  allowDescendantUrl = false,
+): { seg: string; rank: number } | null {
   if (el.id && isStableId(el.id)) {
     return { seg: el.tagName.toLowerCase() + idSelector(el.id), rank: RANK_ID };
   }
-  return nonIdSegment(el);
+  return nonIdSegment(el, allowDescendantUrl);
 }
 
 /**
@@ -787,7 +841,9 @@ export function semanticSelector(
   // terminal (`button`, `i`, `a`, …) also keeps the descendant combinator — the
   // narrowing isn't worth the fragility of a `>` an inserted wrapper would break.
   const terminalTag = el.tagName.toLowerCase();
-  const terminalBare = !semanticSegment(el);
+  // The terminal may borrow a descendant url as identity (allowDescendantUrl);
+  // ancestors may not, so "bare" here is the terminal's own reckoning.
+  const terminalBare = !semanticSegment(el, true);
   const pinChild = terminalBare && CONTAINER_TAGS.has(terminalTag);
 
   const parts: string[] = [];
@@ -800,7 +856,7 @@ export function semanticSelector(
   let isTerminal = true;
 
   while (current && current !== root && current !== document.documentElement) {
-    let seg = semanticSegment(current);
+    let seg = semanticSegment(current, isTerminal);
     // An identity-less struct tag (ul/ol, thead/tbody/tfoot) is weak identity for
     // a bare terminal it qualifies (a list item / table cell): keep it as a
     // last-resort anchor. Gated so it never adds noise to an already-identified
