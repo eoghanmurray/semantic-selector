@@ -1,6 +1,6 @@
 {
   "name": "semantic-selector",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Generate a semantic, identity-only CSS selector for a DOM element — ranks each ancestor by meaningful identity (id/url/name/class/ARIA), never by position; resolves ambiguity out-of-band rather than via positional ordinals",
   "type": "module",
   "author": "Eoghan Murray <eoghanomurray@gmail.com>",
