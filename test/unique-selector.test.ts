@@ -105,6 +105,30 @@ describe('semanticSelector', () => {
       expect(expectResolves(target())).toBe('span#main-cta');
     });
 
+    it('unions a stable id with the element own url for resilience', () => {
+      // An <a> carrying both a stable id and an href: keep both as an :is()
+      // union so the selector survives either the id being renumbered or the
+      // href changing. We deliberately admit a little less uniqueness here.
+      setHTML(
+        '<nav><a id="buy-cta" href="/buy" data-target="target">Buy</a></nav>',
+      );
+      expect(expectResolves(target())).toBe('a:is(#buy-cta, [href="/buy"])');
+    });
+
+    it('factors an id/url anchor across a shared child chain', () => {
+      // The id/url ambiguity is on an ancestor anchor; the child chain below it
+      // is written once — :is() distributes over the descendant combinator.
+      setHTML(`
+        <a id="card-1" href="/buy" data-target="anchor">
+          <span class="cta-label" data-target="target">Buy</span>
+        </a>
+      `);
+      const s = sel(target());
+      expect(s).toBe(':is(#card-1, [href="/buy"]) span.cta-label');
+      // Both arms resolve to the same element in the current DOM.
+      expect(matchCount(s)).toBe(1);
+    });
+
     it('anchors from a parent ID', () => {
       setHTML(`
         <div id="sidebar">

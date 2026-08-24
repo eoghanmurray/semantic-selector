@@ -93,12 +93,17 @@ geometry).
 Per element, best → worst:
 
 1. a stable own **id** (the top rank; a stable id anywhere on the path ends the walk)
-2. **url** — `href` / `src`, with volatile query/hash stripping
+2. **url** — `href` / `src`, with volatile query/hash stripping. Note: if the same element contains both an id and a url, we produce a selector that can match based on either for durability across future versions of the page.
 3. a form control's **name** — the backend submission key
 4. **class** and **ARIA**, interleaved by quality:
    `tier-A class > aria-label > tier-B class > role > tier-C class > rel`
 5. a stable id in the element's subtree — `:has(#id)`
 6. a stable id on the immediately preceding sibling — `#prev + tag`
+
+**id and url are considered the same rank** When one element carries both
+a stable id and a url, we keep both e.g.  `a:is(#buy-cta, [href="/buy"])` or `:is(#buy-cta, [href="/buy"]) span` rather than
+picking one. We either handle alone still finds the element, so it survives the id
+*or* the href changing.
 
 **Class quality tiers:** A = semantic/component (`entry-content`, `product-card`),
 B = framework-namespaced (`wp-…`, `elementor…`, `Mui…`), C = utility/atomic

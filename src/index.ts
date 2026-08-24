@@ -748,7 +748,24 @@ function semanticSegment(
   allowDescendantUrl = false,
 ): { seg: string; rank: number } | null {
   if (el.id && isStableId(el.id)) {
-    return { seg: el.tagName.toLowerCase() + idSelector(el.id), rank: RANK_ID };
+    const tag = el.tagName.toLowerCase();
+    const idSel = idSelector(el.id);
+    // When the element carries *both* a stable id and a url (an `<a id … href …>`),
+    // keep both as an `:is(#id, [href="…"])` union rather than dropping the url.
+    // Either handle alone still resolves the element, so the selector survives the
+    // id being renumbered OR the href changing — resilience bought by admitting a
+    // little less uniqueness. `:is()` distributes over the rest of the path, so a
+    // shared descendant chain is written once: `:is(#id, [href="…"]) span` ≡
+    // `#id span, [href="…"] span`. Rank stays RANK_ID — the id still anchors the
+    // walk and stops it, so the union only ever widens this one rung.
+    const url = urlSegment(el);
+    if (url) {
+      return {
+        seg: tag + ':is(' + idSel + ', ' + stripLeadingTag(url) + ')',
+        rank: RANK_ID,
+      };
+    }
+    return { seg: tag + idSel, rank: RANK_ID };
   }
   return nonIdSegment(el, allowDescendantUrl);
 }
