@@ -845,6 +845,14 @@ export function semanticSelector(
   if (el === root) return el.tagName.toLowerCase();
   if (!el.tagName) return ''; // e.g. document node
 
+  // The document root element (<html>) sits above the default <body> root, so the
+  // ancestor walk below — which stops at document.documentElement — never emits a
+  // segment for it, leaving the path empty. It is a page singleton with a fixed,
+  // unique tag, so return it directly. A click can land on <html> when it falls
+  // outside the <body> box (e.g. below the page content); the caller resolves this
+  // against `document`, not the body root.
+  if (el === document.documentElement) return 'html';
+
   // A terminal (clicked) element with no identity of its own falls back to a
   // bare tag (`div`), which under a descendant combinator matches every such tag
   // in the tree — a match set that can run into the hundreds (a page full of

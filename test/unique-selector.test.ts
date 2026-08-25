@@ -1009,6 +1009,19 @@ describe('semanticSelector', () => {
       expect(sel(target())).toBe('button');
     });
 
+    it('emits `html` for a click on the document root element', () => {
+      // A click can land on <html> when it falls outside the <body> box (e.g.
+      // below the page content). <html> sits above the default body root, so the
+      // ancestor walk never reaches it; it is special-cased to a bare `html`,
+      // resolved against `document`.
+      const html = document.documentElement;
+      const s = semanticSelector(html);
+      expect(s).toBe('html');
+      const matches = document.querySelectorAll(s);
+      expect(matches.length).toBe(1);
+      expect(matches[0]).toBe(html);
+    });
+
     it('pins a bare CONTAINER child but leaves a bare CONTENT child a descendant', () => {
       // The child combinator is gated on the terminal being a generic container
       // tag. A <div> nests heavily, so `#box > div` is worth the fragility of a
