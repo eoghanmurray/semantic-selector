@@ -96,7 +96,7 @@ Per element, best → worst:
 2. **url** — `href` / `src`, with volatile query/hash stripping. Note: if the same element contains both an id and a url, we produce a selector that can match based on either for durability across future versions of the page.
 3. a form control's **name** — the backend submission key
 4. **class** and **ARIA**, interleaved by quality:
-   `tier-A class > aria-label > tier-B class > role > tier-C class > rel`
+   `tier-S component class > tier-A class > aria-label > tier-B class > role > tier-C class > rel`
 5. a stable id in the element's subtree — `:has(#id)`
 6. a stable id on the immediately preceding sibling — `#prev + tag`
 
@@ -105,10 +105,14 @@ a stable id and a url, we keep both e.g.  `a:is(#buy-cta, [href="/buy"])` or `:i
 picking one. We either handle alone still finds the element, so it survives the id
 *or* the href changing.
 
-**Class quality tiers:** A = semantic/component (`entry-content`, `product-card`),
-B = framework-namespaced (`wp-…`, `elementor…`, `Mui…`), C = utility/atomic
-(Bootstrap grid, spacing helpers). The best-tier class is chosen (not the first
-in DOM order), and a low-quality class loses to an explicit `aria-label`.
+**Class quality tiers:** S = component-boundary names for a repeating unit
+(`product-card`, `menu-item`, `product-tile`, `article`) — kept above a plain
+semantic ancestor so the meaningful block survives; A = other semantic/content
+(`entry-content`, `search-filter`); B = framework-namespaced (`wp-…`,
+`elementor…`, `Mui…`); C = utility/atomic/presentational (Bootstrap & Bulma grid,
+spacing helpers, size/alignment words like `small`, `left`, generic `wrap`).
+The best-tier class is chosen (not the first in DOM order), and a low-quality
+class loses to an explicit `aria-label`.
 
 **Structural noise is dropped, by a monotone ratchet.** Only the clicked element
 keeps its tag; ancestor tags are stripped (`#nav a[href="/x"]`, not

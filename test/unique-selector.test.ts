@@ -1434,4 +1434,83 @@ describe('semanticSelector', () => {
       expect(sel(target())).not.toContain('src=');
     });
   });
+
+  describe('presentational classes demoted to utility', () => {
+    it('treats a size class as utility, not identity, at the leaf', () => {
+      setHTML(
+        '<section class="promo"><p class="small" data-target="target">x</p>' +
+          '<p class="small">y</p></section>',
+      );
+      expect(sel(target())).toBe('.promo p.small');
+    });
+
+    it('does not let a size-class leaf block a semantic ancestor', () => {
+      setHTML(
+        '<div id="main"><div class="values"><div class="row">' +
+          '<p class="small left" data-target="target">Guide Pin Series</p>' +
+          '<p class="small right">GK205</p></div></div></div>',
+      );
+      const s = sel(target());
+      expect(s).toContain('.values');
+      expect(s).toContain('p.small');
+    });
+
+    it('treats Bulma column/columns as utility, not a blocking anchor', () => {
+      setHTML(
+        '<header class="site-header"><div class="columns"><div class="column">' +
+          '<a data-target="target">Favourites</a></div></div></header>' +
+          '<div class="column"><a>elsewhere</a></div>',
+      );
+      const s = sel(target());
+      expect(s).toContain('.site-header');
+    });
+
+    it('treats wrap / wrapper as utility', () => {
+      setHTML(
+        '<article class="post"><div class="wrapper"><p data-target="target">hi</p>' +
+          '</div></article><div class="wrapper"><p>other</p></div>',
+      );
+      expect(sel(target())).toContain('.post');
+    });
+  });
+
+  describe('component-boundary classes (tier S)', () => {
+    it('keeps a card boundary above a generic wrapper', () => {
+      setHTML(
+        '<div id="main"><div class="tech-product-card"><div class="values">' +
+          '<div class="row"><p class="small" data-target="target">x</p></div>' +
+          '</div></div><div class="tech-product-card"><div class="values">' +
+          '<div class="row"><p class="small">y</p></div></div></div></div>',
+      );
+      const s = sel(target());
+      expect(s).toContain('product-card');
+    });
+
+    it('prefers a component class over a plain semantic class on the same element', () => {
+      setHTML(
+        '<ul class="list"><li class="menu-item highlight" data-target="target">' +
+          '<span>A</span></li><li class="menu-item">B</li></ul>',
+      );
+      expect(sel(target())).toContain('.menu-item');
+    });
+
+    it('a component leaf narrows a repeated grid to its unit', () => {
+      setHTML(
+        '<div class="grid">' +
+          '<div class="product-tile" data-target="target"><span>P1</span></div>' +
+          '<div class="product-tile"><span>P2</span></div></div>',
+      );
+      expect(sel(target())).toContain('.product-tile');
+    });
+
+    it('does not promote a framework class that merely contains a component word', () => {
+      setHTML(
+        '<section class="promo">' +
+          '<p class="has-background-card-two brand-note" data-target="target">x</p>' +
+          '<p class="brand-note">y</p></section>',
+      );
+      expect(sel(target())).toContain('.brand-note');
+      expect(sel(target())).not.toContain('has-background-card-two');
+    });
+  });
 });

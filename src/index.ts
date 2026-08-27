@@ -242,7 +242,8 @@ function isStableClass(cn: string): boolean {
 // is stable only while the site stays on that framework (a WP→other migration
 // breaks it) and describes the framework's machinery, not this element; a utility
 // class is presentational and shared by hundreds of elements (no selectivity).
-const CLASS_TIER_A = 0; // semantic / component name — author-authored identity
+const CLASS_TIER_S = -1; // component boundaries
+const CLASS_TIER_A = 0; // semantic or author-authored identity
 const CLASS_TIER_B = 1; // framework-namespaced — stable within, but coupled to, a framework
 const CLASS_TIER_C = 2; // utility / atomic / layout — presentational, non-selective
 
@@ -281,7 +282,18 @@ function isUtilityClass(cn: string): boolean {
     /^d-(flex|block|inline|inline-block|none|grid)$/.test(cn) || // display
     /^(offset|order|g|gx|gy)-\d/.test(cn) || // grid helpers
     /^(justify-content|align-items|align-self|text)-[a-z]+$/.test(cn) || // flex/text
+    /^(small|medium|large|big|tiny|mini|huge)$/.test(cn) ||
+    /^(left|right|center|centre|top|bottom|middle)$/.test(cn) ||
+    /^(column|columns)$/.test(cn) ||
+    /^(wrap|wrapper|inner|outer)$/.test(cn) ||
+    /^(clearfix|needsclick)$/.test(cn) ||
     /^[mp][trblxyse]?-\d{1,2}$/.test(cn) // spacing: m-2, px-4
+  );
+}
+
+function isComponentClass(cn: string): boolean {
+  return /(?:^|[-_])(card|item|product|tile|article|teaser|listing|thumbnail)(?:[-_]|$)/i.test(
+    cn,
   );
 }
 
@@ -289,6 +301,7 @@ function isUtilityClass(cn: string): boolean {
 function classTier(cn: string): number {
   if (isUtilityClass(cn)) return CLASS_TIER_C;
   if (isFrameworkClass(cn)) return CLASS_TIER_B;
+  if (isComponentClass(cn)) return CLASS_TIER_S;
   return CLASS_TIER_A;
 }
 
@@ -555,21 +568,23 @@ function findStableDescendantUrl(
 // class) is skipped as pure length. A stable own id is simply the top rank — the
 // old "ids are special, stop the walk" behaviour falls out of it being rank 0,
 // which nothing can beat. The class tiers map into the middle of the order:
-// tier A = RANK_CLASS_A, tier B/C follow in the gaps left for aria-label / role.
+// component tier S sits just below the id/url/name handles; tier A follows, then
+// tier B/C fill the gaps left for aria-label / role.
 const RANK_ID = 0; // stable own id (#id / [id="…"])
 const RANK_URL = 1; // href/src
 const RANK_NAME = 2; // form-control name (backend submission key)
-const RANK_CLASS_A = 3; // semantic / component class
-const RANK_ARIA = 4; // aria-label (explicit accessible name)
-const RANK_CLASS_B = 5; // framework-namespaced class
-const RANK_ROLE = 6; // landmark / widget role
-const RANK_CLASS_C = 7; // utility / atomic class
-const RANK_CLASS_PARTIAL = 8; // CSS-Modules stem via [class*="…"]
-const RANK_REL = 9; // rel
-const RANK_HAS_ID = 10; // a stable id within the subtree (:has(> #id))
-const RANK_HAS_URL = 11; // a distinctive url within the subtree (:has(> a[href="…"]))
-const RANK_SIBLING_ID = 12; // a stable id on the preceding sibling (prev#id + tag)
-const RANK_STRUCT_TAG = 13; // a structural tag whose NAME disambiguates a child role
+const RANK_CLASS_S = 3; // component boundary
+const RANK_CLASS_A = 4; // regular (hopefully semantic) class
+const RANK_ARIA = 5; // aria-label (explicit accessible name)
+const RANK_CLASS_B = 6; // framework-namespaced class
+const RANK_ROLE = 7; // landmark / widget role
+const RANK_CLASS_C = 8; // utility / atomic class
+const RANK_CLASS_PARTIAL = 9; // CSS-Modules stem via [class*="…"]
+const RANK_REL = 10; // rel
+const RANK_HAS_ID = 11; // a stable id within the subtree (:has(> #id))
+const RANK_HAS_URL = 12; // a distinctive url within the subtree (:has(> a[href="…"]))
+const RANK_SIBLING_ID = 13; // a stable id on the preceding sibling (prev#id + tag)
+const RANK_STRUCT_TAG = 14; // a structural tag whose NAME disambiguates a child role
 
 // Structural tags whose *tag name* is weak identity because it changes a
 // contained element's role: an <li> under <ol> vs <ul> is ordered vs unordered;
@@ -591,8 +606,9 @@ function structTagQualifies(structTag: string, terminalTag: string): boolean {
   return terminalTag === 'tr' || terminalTag === 'td' || terminalTag === 'th';
 }
 
-/** Map a class tier (A/B/C = 0/1/2) to its identity rank (aria=4, role=6 interleave). */
+/** Map a class tier (S/A/B/C = -1/0/1/2) to its identity rank (aria/role interleave above tier A). */
 function classRank(tier: number): number {
+  if (tier === CLASS_TIER_S) return RANK_CLASS_S;
   return [RANK_CLASS_A, RANK_CLASS_B, RANK_CLASS_C][tier];
 }
 
@@ -639,7 +655,7 @@ function nonIdSegment(
       if (isStableClass(cn)) {
         const tier = classTier(cn);
         if (!bestClass || tier < bestClass.tier) bestClass = { cn, tier };
-        if (tier === CLASS_TIER_A) break; // nothing beats tier A; keep the first one
+        if (tier === CLASS_TIER_S) break; // nothing beats a component boundary; keep the first one
         continue;
       }
       // Not usable as a full `.class`, but a CSS-Modules scoped name still
@@ -663,6 +679,8 @@ function nonIdSegment(
         rank: classRank(bestClass.tier),
       }
     : null;
+
+  if (classSeg && bestClass!.tier === CLASS_TIER_S) return classSeg;
 
   if (classSeg && bestClass!.tier === CLASS_TIER_A) return classSeg;
 
