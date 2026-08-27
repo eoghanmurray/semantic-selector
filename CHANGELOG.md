@@ -1,5 +1,23 @@
 # semantic-selector
 
+## 0.3.0
+
+### Minor Changes
+
+- 3f1e1cb: Add a component-boundary class tier (S) and demote presentational classes to utility.
+
+  Two changes to class ranking, both aimed at the same real-world failure: an identity-less leaf inside a repeating card/list produced a near-useless selector because the meaningful container was dropped and the leaf itself claimed a high rank.
+
+  1. **New tier S for component-boundary names** — a class naming a repeating unit (`card`, `item`, `product`, `tile`, `article`, `teaser`, `listing`, `thumbnail`, matched as a whole word) now outranks a plain tier-A semantic class. In the ancestor ratchet this keeps the block boundary (`.product-card`, `.menu-item`) above a generic inner wrapper (`.values`, `.content`), and on a single element a component class is chosen over a plain semantic one. Utility and framework classes are ranked first, so a framework class that merely contains a component word (`has-background-card-two`, `wp-block-navigation-item`) is not promoted.
+
+  2. **Presentational classes demoted to tier C (utility)** — size words (`small`, `large`, `medium`, `big`, `tiny`, `mini`, `huge`), position/alignment words (`left`, `right`, `center`, `top`, `bottom`, `middle`), Bulma grid (`column`, `columns`), generic wrappers (`wrap`, `wrapper`, `inner`, `outer`), and the `clearfix` / `needsclick` markers are no longer treated as semantic identity. A `p.small` leaf no longer blocks a semantic ancestor from being kept.
+
+- 042874f: When an element carries both a stable id and a url (an `<a id="buy-cta" href="/buy">`), emit both as an OR: `:is(#buy-cta, [href="/buy"])` rather than dropping the url because of the id. Either handle alone still resolves the element, so the selector now survives the id being changed _or_ the href changing.
+
+### Patch Changes
+
+- a801403: Ensure we emit the `html` selector for a click on the document root element (`<html>`) - e.g. a test page with a short body vs. the browser viewport.
+
 ## 0.2.0
 
 ### Minor Changes
