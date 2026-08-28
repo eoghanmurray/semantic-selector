@@ -47,46 +47,52 @@ Given the following markup (two identical buy buttons):
 ```html
 <main>
   <section class="wp-block-group product-card">
-    <a class="wp-block-button__link buy-button" href="/checkout?utm_source=x"
-      >Buy now</a
+    <a class="wp-block-button__link buy-button"
+       href="/checkout?utm_source=x"
+      >Quick Buy</a
     >
   </section>
   <section class="wp-block-group product-card">
-    <a class="wp-block-button__link buy-button" href="/checkout?utm_source=y"
-      >Buy now</a
+    <a class="wp-block-button__link buy-button"
+       href="/checkout?utm_source=y&m=a"
+      >Add to Cart</a
     >
   </section>
 </main>
 ```
 
 ```ts
-const el = document.querySelectorAll('.buy-button')[1];
-semanticSelector(el);
+const targetIsSecondButton = document.querySelectorAll('.buy-button')[1];
+const selector = semanticSelector(targetIsSecondButton);
 // → '.product-card a[href^="/checkout"]'
 ```
 
 Note what happened: the framework classes (`wp-block-group`,
-`wp-block-button__link`) and the volatile `?utm_source=…` query were dropped, the
-semantic `.product-card` ancestor was kept, and — because both buttons in this toy example can be considered to have the same identity — the result deliberately matches **both** (no`:nth-of-type` inserted to force uniqueness).
+`wp-block-button__link`) and the volatile `?utm_source=…` query were dropped, along witht he `m=a` key differentiator in the link.  The
+semantic `.product-card` ancestor was kept.  The end result is that we don't have enough class / dom based signals in this example to differentiate them so the result deliberately matches **both** (no`:nth-of-type` inserted to force uniqueness).
 
-Since the selector is not guaranteed unique, the caller resolves any residual
+Since the selector is not guaranteed unique (we don't look at length of `document.querySelectorAll` during selector generation), if further refinement to a single element is a requirement, it's up to the caller to resolve this separately.
 ambiguity out-of-band by pairing it with a match index + count (see [Selector
 Uniqueness](#selector-uniqueness-on-page-vs-between-page-versions)):
 
 ```ts
-const selector = semanticSelector(el);
+// maybe we want re-run the output against page to count other matches
 const matches = Array.from(document.querySelectorAll(selector));
+// or maybe text content is important as a differentiator
+const innerText = el.innerText.substring(0, 40);
+// or maybe element dimensions
+const clientRect = el.getBoundingClientRect();
 
 const result = {
-  selector, //                  → '.product-card a[href^="/checkout"]'
-  selectorMatchIndex: matches.indexOf(el), // → 1  (0-based position among matches)
-  selectorMatchCount: matches.length, //       → 2  (total elements this matches)
+  selector, // '.product-card a[href^="/checkout"]'
+  matchCount: matches.length, // 2
+  matchIndex: matches.indexOf(el), // 1  (0-based so the second one of two)
+  innerText,  // "Add to Cart"
+  clientRect, // DOMRect { x: 110, y: 413.95, width: 313, height: ...
 };
 ```
 
-To relocate the element later, re-run the selector against the new page and take
-the element at `selectorMatchIndex` (optionally cross-checked against recorded
-geometry).
+To relocate the element against a later version of the page, re-run the selector against the new page and take some combination of the above (and/or other signals) to decide whether the element match continues to be valid or not.
 
 ## How it ranks identity
 
