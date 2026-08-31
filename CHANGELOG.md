@@ -4,12 +4,14 @@
 
 ### Patch Changes
 
-- 11f4eea: - Demote Tailwind atomic utility classes to CLASS_TIER_C (`flex`, `grid`, `block`, `relative`, `absolute`, `fixed`, `sticky`, …),
-  - Ensure framework 'styled-components' generated classes omit the random bit (`<stem>-sc-<hash>-<n>` → `<stem>`)
-  - Reject jss<n> `jss[0-9]+` (MUI v4 / react-jss auto class names)
-  - Reject .finished as it might be a 'state' class like .active or .selected
-  - Apply hasRandomTokenRun and hex-run test to class names as well
-  - Reject double-underscore system IDs (__next, __nuxt, ___gatsby)
+Reject/demote more generated classes and ids:
+
+- 0ed076e0c: Demote Tailwind atomic utility classes to CLASS_TIER_C (`flex`, `grid`, `block`, `relative`, `absolute`, `fixed`, `sticky`, …),
+- 9f31ac59fd7a31ef61655f0ac7fb79b75a655f49: Ensure framework [styled-components](https://github.com/styled-components) generated classes omit the random bit (`<stem>-sc-<hash>-<n>` → `<stem>`)
+- 259e349090771be56035adba4ec976ab24d67335: Reject jss<n> `jss[0-9]+` (MUI v4 / react-jss auto class names)
+- 259e349090771be56035adba4ec976ab24d67335: Reject .finished as it might be a 'state' class like .active or .selected
+- 91c6f6254c0d89dac29e697ed1aacb3475710b34: Apply hasRandomTokenRun and hex-run test to class names as well
+- 89f353452756aaa087daa69e0cbbc6e3c3a7c8d4: Reject double-underscore system IDs (__next, __nuxt, ___gatsby)
 
 ## 0.3.0
 
