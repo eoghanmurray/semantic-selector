@@ -183,6 +183,23 @@ describe('semanticSelector', () => {
       expect(sel(target())).not.toContain('#ember742');
     });
 
+    it('rejects double-underscore system-root IDs (__next, __nuxt, ___gatsby)', () => {
+      for (const rootId of ['__next', '__nuxt', '___gatsby']) {
+        setHTML(
+          `<div id="${rootId}"><section class="hero"><a href="/buy" data-target="target">Buy</a></section></div>`,
+        );
+        const s = sel(target());
+        expect(s).not.toContain(rootId);
+      }
+    });
+
+    it('keeps an id with a double underscore that is not a prefix', () => {
+      setHTML(
+        '<div id="block__content"><span data-target="target">Text</span></div>',
+      );
+      expect(sel(target())).toContain('block__content');
+    });
+
     it('rejects UUIDs in IDs', () => {
       setHTML(
         '<div id="widget-a1b2c3d4e5f6a7b8"><span data-target="target">Text</span></div>',

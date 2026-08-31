@@ -67,6 +67,7 @@ function hasRandomTokenRun(s: string): boolean {
 function isStableId(id: string): boolean {
   if (/^ember\d+$/.test(id)) return false;
   if (/^yui/.test(id)) return false;
+  if (/^__/.test(id)) return false;
   // React useId / Radix / MUI v5+ / Headless UI all emit colon-wrapped ids
   // like ":r0:", ":R2m:", or use one as a prefix (":r0:-label"). They are
   // regenerated on every render, so are unsuitable for our use.
