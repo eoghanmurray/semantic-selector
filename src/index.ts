@@ -233,6 +233,8 @@ function isStableClass(cn: string): boolean {
   if (styledComponentStem(cn)) return false;
   if (hasStateWord(cn)) return false; // transient interaction-state class
   if (/\d{4,}/.test(cn)) return false; // contains long numeric sequences
+  if (/[0-9a-fA-F]{32}/.test(cn)) return false;
+  if (hasRandomTokenRun(cn)) return false;
   return true;
 }
 

@@ -454,6 +454,33 @@ describe('semanticSelector', () => {
       expect(s).not.toContain('class*');
     });
 
+    it('rejects a class carrying a 32-char hex hash (finder parity)', () => {
+      setHTML(`
+        <div>
+          <span class="icon-d41d8cd98f00b204e9800998ecf8427e" data-target="target">x</span>
+          <span class="icon-d41d8cd98f00b204e9800998ecf8427e">y</span>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).not.toContain('d41d8cd9');
+    });
+
+    it('rejects a class that is a random machine token (ULID-like)', () => {
+      setHTML(`
+        <div>
+          <span class="016JB91MZ80000000000036PNV" data-target="target">x</span>
+          <span class="016JB91MZ80000000000036PNV">y</span>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).not.toContain('016JB91MZ8');
+    });
+
+    it('keeps a hex-looking word class that is not a hash', () => {
+      setHTML('<div class="deadline-banner" data-target="target">x</div>');
+      expect(sel(target())).toBe('div.deadline-banner');
+    });
+
     it('rejects a MUI v4 / react-jss auto class (jss123)', () => {
       setHTML(`
         <div>
