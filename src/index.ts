@@ -294,7 +294,26 @@ function isUtilityClass(cn: string): boolean {
     /^(column|columns)$/.test(cn) ||
     /^(wrap|wrapper|inner|outer)$/.test(cn) ||
     /^(clearfix|needsclick)$/.test(cn) ||
-    /^[mp][trblxyse]?-\d{1,2}$/.test(cn) // spacing: m-2, px-4
+    /^[mp][trblxyse]?-\d{1,2}$/.test(cn) || // spacing: m-2, px-4
+    /^(flex|inline-flex|grid|inline-grid|block|inline-block|inline|contents|flow-root)$/.test(
+      cn,
+    ) ||
+    /^(relative|absolute|fixed|sticky|static)$/.test(cn) ||
+    /^(flex|grid)-(row|col|column)(-reverse)?$/.test(cn) ||
+    /^flex-(wrap|nowrap|wrap-reverse|auto|initial|none|\d+)$/.test(cn) ||
+    /^(grow|shrink)(-0)?$/.test(cn) ||
+    /^(w|h|min-w|max-w|min-h|max-h)-(full|screen|auto|min|max|fit|px|\d{1,3})$/.test(
+      cn,
+    ) ||
+    /^(gap|gap-x|gap-y|space-x|space-y)-\d+$/.test(cn) ||
+    /^(items|self|place-items|place-content)-(start|end|center|stretch|baseline)$/.test(
+      cn,
+    ) ||
+    /^justify-(start|end|center|between|around|evenly)$/.test(cn) ||
+    /^(rounded|border|shadow)(-[a-z0-9]+)*$/.test(cn) ||
+    /^(truncate|uppercase|lowercase|capitalize|italic|antialiased)$/.test(cn) ||
+    /^(z|order)-\d+$/.test(cn) ||
+    /^overflow(-[xy])?-(auto|hidden|visible|scroll|clip)$/.test(cn)
   );
 }
 

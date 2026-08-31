@@ -1492,6 +1492,28 @@ describe('semanticSelector', () => {
       expect(s).toContain('.site-header');
     });
 
+    it('treats Tailwind flex/position utilities as utility, not identity', () => {
+      setHTML(
+        '<section class="promo"><div class="flex relative" data-target="target">' +
+          '<span>x</span></div><div class="flex relative"><span>y</span></div></section>',
+      );
+      expect(sel(target())).toBe('.promo div.flex');
+    });
+
+    it('does not let a Tailwind utility leaf block a semantic ancestor', () => {
+      setHTML(
+        '<div class="product-card"><div class="w-full absolute" data-target="target">' +
+          '<a href="/buy">Buy</a></div></div>',
+      );
+      const s = sel(target());
+      expect(s).toContain('.product-card');
+    });
+
+    it('keeps a real class that merely starts like a utility prefix', () => {
+      setHTML('<div class="flexible-hours" data-target="target">x</div>');
+      expect(sel(target())).toBe('div.flexible-hours');
+    });
+
     it('treats wrap / wrapper as utility', () => {
       setHTML(
         '<article class="post"><div class="wrapper"><p data-target="target">hi</p>' +
