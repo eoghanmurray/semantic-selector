@@ -133,6 +133,12 @@ function moduleClassStem(cn: string): string | null {
   return stem;
 }
 
+function styledComponentStem(cn: string): string | null {
+  const m = cn.match(/^(.+?)-sc-[a-z0-9]{5,}(?:-\d+)?$/i);
+  if (!m || m[1].length < 3) return null;
+  return m[1];
+}
+
 /**
  * Interaction / transient *state* classes: toggled on by JS or `:` pseudo-mirror
  * in response to the current interaction (click, hover, focus, drag, open/close,
@@ -222,6 +228,7 @@ function isStableClass(cn: string): boolean {
   if (/^css-/.test(cn)) return false; // emotion
   if (/^_[a-zA-Z0-9]{5,}$/.test(cn)) return false; // CSS modules hash
   if (moduleClassStem(cn)) return false; // CSS-Modules scoped `stem-HASH`
+  if (styledComponentStem(cn)) return false;
   if (hasStateWord(cn)) return false; // transient interaction-state class
   if (/\d{4,}/.test(cn)) return false; // contains long numeric sequences
   return true;
@@ -664,7 +671,7 @@ function nonIdSegment(
       // multi-token stem qualifies (a hyphen/underscore or a camelCase hump):
       // a bare single-word stem (`css` from an emotion `css-175oi2r`) is too
       // generic for a substring match and would match half the page.
-      const stem = moduleClassStem(cn);
+      const stem = moduleClassStem(cn) || styledComponentStem(cn);
       if (
         stem &&
         (/[-_]/.test(stem) || /[a-z][A-Z]/.test(stem)) &&

@@ -381,6 +381,33 @@ describe('semanticSelector', () => {
       expect(sel(target())).not.toContain('sc-abc123');
     });
 
+    it('rejects a prefixed styled-components class, folding to its stem', () => {
+      setHTML(`
+        <div>
+          <button class="common__IconButton-sc-1ojome3-0" data-target="target">x</button>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).toBe('button[class*="common__IconButton"]');
+      expect(s).not.toContain('sc-1ojome3');
+    });
+
+    it('prefers a real class over a styled-components class', () => {
+      setHTML(`
+        <div>
+          <button class="common__IconButton-sc-1ojome3-0 buy-now" data-target="target">x</button>
+        </div>
+      `);
+      expect(sel(target())).toBe('button.buy-now');
+    });
+
+    it('does not mistake a real class with an -sc- segment for styled-components', () => {
+      setHTML('<div class="disc-scroll-area" data-target="target">x</div>');
+      const s = sel(target());
+      expect(s).toBe('div.disc-scroll-area');
+      expect(s).not.toContain('class*');
+    });
+
     it('rejects emotion CSS classes', () => {
       setHTML(`
         <div>
