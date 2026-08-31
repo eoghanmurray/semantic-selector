@@ -200,6 +200,7 @@ const STATE_WORDS = new Set([
   'leaving',
   'animating',
   'transitioning',
+  'finished',
 ]);
 
 /**
@@ -226,6 +227,7 @@ function isStableClass(cn: string): boolean {
   if (cn.startsWith('styled__') || cn.startsWith('sc-') || cn.includes('__sc-'))
     return false;
   if (/^css-/.test(cn)) return false; // emotion
+  if (/^jss\d+$/.test(cn)) return false;
   if (/^_[a-zA-Z0-9]{5,}$/.test(cn)) return false; // CSS modules hash
   if (moduleClassStem(cn)) return false; // CSS-Modules scoped `stem-HASH`
   if (styledComponentStem(cn)) return false;

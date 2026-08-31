@@ -454,6 +454,29 @@ describe('semanticSelector', () => {
       expect(s).not.toContain('class*');
     });
 
+    it('rejects a MUI v4 / react-jss auto class (jss123)', () => {
+      setHTML(`
+        <div>
+          <button class="jss42" data-target="target">x</button>
+          <button class="jss43">y</button>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).not.toContain('jss42');
+    });
+
+    it('rejects "finished" as a transient state class', () => {
+      setHTML(`
+        <div>
+          <button class="upload finished" data-target="target">x</button>
+          <button class="upload">y</button>
+        </div>
+      `);
+      const s = sel(target());
+      expect(s).toBe('button.upload');
+      expect(s).not.toContain('finished');
+    });
+
     it('rejects state classes like "active" or "selected"', () => {
       setHTML(`
         <div>
